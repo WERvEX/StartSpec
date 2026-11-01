@@ -44,8 +44,10 @@ export function electronUpdater(): UpdaterPort | UnsupportedReason {
       }
     },
     install() {
-      // Quits through the normal path, so a run still going is asked about first.
-      autoUpdater.quitAndInstall(false, true);
+      // Quits through the normal path, so a run still going is asked about first. Silent: on Windows the
+      // installer otherwise opens its setup wizard and waits for clicks instead of restarting KM0 (the
+      // packaged update test caught it); elsewhere the flag does nothing.
+      autoUpdater.quitAndInstall(true, true);
     },
   };
 }
