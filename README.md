@@ -4,7 +4,7 @@ KM0 是编码 Agent 的上游：你用一句话描述要做的事，KM0 判断�
 
 名字取自“零公里”：所有道路的里程都从这里起算。
 
-> 当前版本 1.0（[发布说明](docs/releases/v1.0.0.md)）。设置环境变量 `KM0_FAKE_LLM=1` 可以用模拟模型体验流程，不需要 API Key。设计见 [docs/DESIGN.md](docs/DESIGN.md)，1.0 的规划见 [docs/ROADMAP-1.0.md](docs/ROADMAP-1.0.md)。
+> 当前版本 1.0（[发布说明](docs/releases/v1.0.0.md)）。设置环境变量 `KM0_FAKE_LLM=1` 可以用模拟模型体验流程，不需要 API Key。设计见 [docs/DESIGN.md](docs/DESIGN.md)，1.0 的规划见 [docs/ROADMAP-1.0.md](docs/ROADMAP-1.0.md)，下一版（1.1）的规划见 [docs/ROADMAP-1.1.md](docs/ROADMAP-1.1.md)。
 
 ## 下载
 

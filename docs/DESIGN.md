@@ -337,7 +337,7 @@ IPC 通道定义在 `packages/shared/src/ipc.ts`，主进程按 zod schema 校�
 | P5 界面 | 完整工作区、问题卡、决策账本、文档页、路由表、交接面板、设置页 | 端到端走完一条完整通道并截图；**完成后暂停，请用户确认界面** |
 | P6 收尾 | 技术选型查证（Bocha / MCP）、仓库扫描、配置导入导出、README | 全量测试通过；三平台安装包 |
 
-P0–P6 已完成，0.1.0 已发布；之后接入了 KM0 Runner 与验收（见“Agent 交接”一节）。正式版的阶段 R0–R6 见 [ROADMAP-1.0.md](ROADMAP-1.0.md)。
+P0–P6 已完成，0.1.0 已发布；之后接入了 KM0 Runner 与验收（见“Agent 交接”一节）。正式版的阶段 R0–R6 见 [ROADMAP-1.0.md](ROADMAP-1.0.md)，1.0 已发布；1.1 的规划见 [ROADMAP-1.1.md](ROADMAP-1.1.md)。
 
 ## 风险
 
