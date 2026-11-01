@@ -1,112 +1,111 @@
 # KM0 1.1 规划
 
-状态：规划中（2026-11）。本文档随实现推进更新；每完成一个阶段，把定稿的设计并入 [DESIGN.md](DESIGN.md)。Runner 一侧的阶段同时写进 KM0-runner 的 [docs/ROADMAP.md](https://github.com/WERvEX/KM0-runner/blob/main/docs/ROADMAP.md)，按它的 [CONTRIBUTING.md](https://github.com/WERvEX/KM0-runner/blob/main/CONTRIBUTING.md) 走：协议有改动时两边各开一个 PR，先合并并发布 Runner，再合并 KM0。
+状态：规划中（2026-11）。本文档随实现推进更新；每完成一个阶段，把定稿的设计并入 [DESIGN.md](DESIGN.md)。
+
+## 分工
+
+- **KM0** 负责确认需求、拆分任务，并规划每个任务由哪个 Agent 的哪个模型来做；然后按这个规划把任务交给对应的 Agent，收回结果并验收。KM0 不在执行中途切换模型：任务没通过时，沿用 1.0 的做法，由用户决定是否换到升级链上更强的组合重做。
+- **KM0 Runner** 是和其他 Agent 同级的一种执行方式：它用 pi 执行，并且按任务完成情况自己决定是否切换模型。Runner 的路线图和协议不因 1.1 改变。
+- **各个 Agent**（Claude Code、Claude Desktop，以后还有 Codex、Cursor、DSH、ZCode、WorkBuddy 等）只负责在给定的工作目录里完成交给它的那一个任务。
 
 ## 目标
 
-1.0 有三个缺口：
+1.1 先接入两个 Agent，验证它们能按 KM0 的规划配合完成一个项目：
 
-- 应用内更新只用假的更新源（`KM0_FAKE_UPDATE`）测过界面，打包后的程序从来没有真的下载、替换、重启过一次。
-- 执行只有一条路：KM0 → KM0 Runner → pi。路由选中 Claude Code 的任务，实际是 pi 在跑同一个模型，Claude Code 本身没有参与。
-- Claude Desktop 和交互式的 Claude Code 只能手动复制交接包里的提示词。
+- **Claude Code**：KM0 直接启动 `claude -p`，全自动执行。
+- **Claude Desktop**：它不能被程序启动，改为由它来找 KM0 领任务（MCP），做完回报。
 
-1.1 的做法：
-
-- **更新**：在 CI 里用打包好的程序真实地走一遍更新：装一个旧版本，本地起一个更新源提供新版本，自动检查、下载、安装、重启，最后确认版本号变了。
-- **Claude Code 执行**：Runner 的阶梯上，每一级可以指定用 pi 还是 Claude Code。路由到 Claude Code 的任务，在 worktree 里由真正的 `claude -p` 执行，升档、测试、合并、报告、停止和进度都沿用 Runner 现有的机制。
-- **Claude Desktop**：KM0 提供一个 MCP 服务器。Claude Desktop（或交互式的 Claude Code）通过它领任务、读交接内容、回报结果，KM0 照常验收。
+另外补上 1.0 的一个缺口：应用内更新从没用打包好的程序真实测试过（U1）。
 
 不做：
 
-- CI 和自动测试里不调用真实的 Claude Code，只用脚本冒充 `claude`。真实调用留一个手动开启的测试，由用户在本地运行。
-- 未签名的 macOS 版本仍然不能在应用内更新。
-- Runner 不接 Codex 等其他 Agent，等 Claude Code 这条路跑通再看。
+- 自动测试里不调用真实的 Claude Code 和 Claude Desktop，只用冒充的程序和脚本化的 MCP 客户端。真实调用留一份手动验收清单和一个默认不跑的测试。
+- 其他 Agent 放到 1.1 之后，一个 Agent 一个 PR（见第 5 节）。
+- 没有依赖关系的任务暂不并行，按依赖顺序一个一个执行。
 - KM0 不合并 Agent 产出的分支。
 
-## 1. 应用内更新的真实测试（U1，只改 KM0）
+## 1. 直接交给 Agent 执行（E1）
 
-- `KM0_UPDATE_FEED=<地址>` 让打包后的程序改用这个地址作为更新源（electron-updater 的 generic provider）。设置后，“设置 → 关于”会显示更新来源，避免悄悄换源。
-- `e2e-packaged/update.spec.ts`：
-  1. 用同一份代码打两个版本：`1.1.0-test.1` 和 `1.1.0-test.2`（electron-builder 的 `extraMetadata.version`）。
-  2. 在本地起一个 HTTP 服务器，放 test.2 的安装包和 `latest*.yml`。
-  3. 启动 test.1，在“关于”里检查、下载、重启安装。
-  4. 等它重启，确认“关于”里的版本是 test.2，数据目录里的项目还在。
-- 平台：Linux 测 AppImage；Windows 测 NSIS（先静默安装 test.1）。macOS 未签名，跳过并写明原因。
-- CI：新增 `update-test` 任务，在 Linux 和 Windows 上跑。PR 改到更新相关的文件或打包配置时必跑，`master` 上每次都跑。
+“设置 → 执行”新增第三种执行方式“**直接交给 Agent**”，和 KM0 Runner、自定义命令并列。
 
-**完成标准**：Linux 和 Windows 的 `update-test` 在 CI 里通过；发布 1.1.0 时，再从 1.0.0 实际升级一次。
+- **执行过程**：按依赖顺序，逐个任务：
+  1. 在运行目录里给任务建一个 git worktree，分支 `km0/<run_id>/<编号>`，基于仓库当前的 HEAD；有依赖的任务基于它所依赖任务的分支（依赖多个时依次合并，冲突就把这个任务标为“阻塞”）。用户的工作区和已有分支不动。
+  2. 按路由结果找到这个任务的 Agent 和模型，交给对应的接入方式（第 2、3 节）。
+  3. Agent 结束后，把 worktree 里没提交的改动提交到任务分支；任务有测试命令就运行一次。
+  4. 写这个任务的报告。
+- **和 Runner 用同一种文件格式**：运行目录里写 `progress.jsonl`、`reports/NN.json`（`report_version: 2`）、`summary.json`；停止也看 `STOP` 文件。所以 1.0 的进度面板、停止、自动导入、验收、本地记录和“重做”都直接可用。
+- 一个任务失败、被阻塞或者等不到回报时，依赖它的任务标为“阻塞”，不执行。
+- 预检：仓库、每个任务的 Agent 能不能用（第 2、3 节各自的检查）、预算。
 
-**风险**：Playwright 能不能直接驱动 AppImage 和装好的 NSIS 程序，要先做一个最小的试验。不行的话，改成在程序里加一个只在测试版本里生效的自动操作开关。
+## 2. Claude Code（E2）
 
-## 2. Runner：Claude Code 后端（C1，KM0-runner 0.4.0）
+- 命令：`claude -p --output-format stream-json --verbose --model <模型> --permission-mode acceptEdits --allowedTools <白名单> --max-budget-usd <上限>`。提示词就是交接包里这个任务的内容，从 stdin 传入；工作目录是任务的 worktree。
+- 读 stream-json：工具调用计步数并显示在进度里；`result` 事件给出花费、token 用量和是否出错。
+- 停止：结束整个进程（Windows 上结束进程树）。
+- 登录：服务商配了 API Key（或中转地址）时，通过环境变量 `ANTHROPIC_API_KEY`、`ANTHROPIC_BASE_URL` 传给它；没配时使用用户本机 Claude Code 自己的登录，并在设置里提示用户自行确认这样用符合订阅条款。
+- 预检：找到 `claude`、版本不低于测试过的最低版本。
 
-这一项原来在 Runner 路线图的“暂不做”里，理由是 KM0 的自定义执行命令可以覆盖。自定义命令只能启动、显示输出，没有升档、测试、合并和逐任务的报告，所以改为在 Runner 里做，并更新 Runner 的路线图。
+## 3. Claude Desktop（E3）
 
-- **配置**：阶梯的每一级（全局 `ladder` 和 `task_ladders`）新增可选字段 `agent: pi | claude_code`，默认 `pi`。`claude_code` 的级，`model` 写 Claude 的模型 ID（如 `claude-sonnet-5-5`），不经过 pi 的 `models.json`。
-- **执行**：新增 `ClaudeCodeClient`，和 `PiClient` 同一套接口（开始、续跑、中止，返回同样的 `RunOutcome`）：
-  - 命令：`claude -p --output-format stream-json --verbose --model <模型> --permission-mode acceptEdits --allowedTools <列表> --max-budget-usd <本级 cost_limit> --append-system-prompt <Runner 的规则>`。提示词从 stdin 传入，工作目录是任务的 worktree。
-  - 读 stream-json：每次工具调用记一步（对应 `step_limit`）；`result` 事件给出花费、轮数、token 用量和是否出错。
-  - 续跑：服务商出错时，用 `--resume <session_id>` 接着跑，和 pi 的续跑一样。
-  - 停止：Linux/macOS 用 SIGTERM 结束整个进程组；Windows 结束进程树。`STOP` 文件照常生效。
-- **登录**：用户可以用 Claude 订阅登录，也可以用 API Key。Runner 不碰登录信息，只把 KM0 传来的 `ANTHROPIC_API_KEY` 和 `ANTHROPIC_BASE_URL` 原样交给 `claude`。
-- **版本**：`claude --version` 不低于一个测试过的最低版本。Claude Code 会自动更新，所以不锁定到某一个版本。
-- **报告**：`attempts[]` 新增可选字段 `agent`；订阅登录时，花费照记，另外记 token 用量，由 KM0 按计费方式换算。`report_version` 不变。
-- **测试**：`tests/fixtures/claude` 用脚本冒充 `claude`，按剧本输出 stream-json；覆盖升档、续跑、停止、超出预算和输出不是 UTF-8 的情况。`tests/test_real_claude.py` 只在设置了 `KM0_TEST_CLAUDE` 时运行。三平台 CI 全绿。
+- 新增预置 Agent “Claude Desktop”，本家厂商 Anthropic，默认不启用。路由很少会自动选它，用户可以在路由表里把某个任务手动指定给它。
+- KM0 提供一个 MCP 服务器，用 `KM0 --mcp` 启动（不打开窗口，stdio）。“设置 → 执行”显示要加到 Claude Desktop 配置里的片段，可以一键复制；交互式的 Claude Code 用 `claude mcp add` 也能接。
+- 执行到这样的任务时，它在进度里显示为“**等待 Claude Desktop 领取**”。用户在 Claude Desktop 里说“做 KM0 的任务”，Claude 通过这些工具完成：
+  - `km0_next_task`：领取任务，返回任务内容（和交接包一致）。
+  - `km0_list_files`、`km0_read_file`、`km0_write_file`：只能访问这个任务的 worktree。Claude Desktop 本身不能改本地文件，这几个工具给它一个限定在 worktree 里的工作区。
+  - `km0_run_tests`：运行任务的测试命令，返回结果。
+  - `km0_report`：回报完成或放弃，附一句说明。
+- 回报之后的提交、测试和报告和 Claude Code 一样。
+- MCP 服务器不碰数据库，只读写 KM0 数据目录里的任务收件箱（`dispatch/`），执行进程写入、MCP 服务器领取，所以和打开着的 KM0 窗口互不影响。
 
-**完成标准**：Runner 0.4.0 发布；只用 pi 的配置照常能跑。
+## 4. 测试：两个 Agent 配合完成一个项目
 
-**待确认**：权限默认用 `acceptEdits` 加工具白名单（Bash 会放行，和 pi 现在一样能执行命令）。要更严格的话，可以像 pi 一样放进容器里跑。
+- **冒充的 `claude`**：一个脚本，按剧本修改文件、输出 stream-json，覆盖成功、出错、超出预算和停止的情况。
+- **脚本化的 Claude Desktop**：用 MCP SDK 的客户端启动 `--mcp` 服务器，像 Claude 一样领任务、读写文件、跑测试、回报。
+- **配合测试**：一个项目拆成三个任务，01 给 Claude Code，02 给 Claude Desktop（依赖 01），03 给 Claude Code（依赖 02）。检查：
+  - 三个任务都完成；
+  - 02 的分支里有 01 的改动，03 的分支里有前两个的改动；
+  - 报告被导入、完成验收；
+  - 中途停止时，等待领取的任务被取消。
 
-## 3. KM0：用 Claude Code 执行（C2，要求 Runner 0.4.0）
+  单元测试和 e2e 各跑一遍，e2e 截图给界面验收用。
+- **手动验收清单**：在一台装了 Claude Code 和 Claude Desktop 的电脑上，用真实的两个 Agent 走一遍同样的三个任务。
+- **真实调用测试**：`KM0_CLAUDE_REAL=1` 时用真实的 `claude` 跑 Claude Code 那一半，默认不跑。
 
-- 生成 Runner 配置时，路由到 Claude Code、模型属于 Anthropic 的那一级写 `agent: claude_code`；其他组合仍然由 pi 执行。
-- “设置 → 执行”：
-  - 显示是否找到 `claude`、版本，以及登录方式（订阅或 API Key）。
-  - 开关“路由到 Claude Code 的任务用 Claude Code 执行”：找到 `claude` 时默认打开；关掉就退回 1.0 的做法，交给 pi。
-- 预检：
-  - `claude` 找到且版本够用。
-  - 服务商按 token 或中转计费时，要有 key（中转还要有地址）。
-  - 订阅计费时，提醒会占用订阅额度。
-- 密钥仍然只通过环境变量传给 Runner。
-- 订阅额度开始统计 Claude Code 的运行（来自报告里的 token 用量），补上 1.0 的已知缺口。
-- 执行面板：每个任务显示是哪个 Agent 在跑。
-- `fake-runner.mjs` 认识 `agent` 字段；`RUNNER_MIN_VERSION` 改为 0.4.0；`KM0_RUNNER_REAL` 集成测试用冒充的 `claude` 跑一遍。
+**完成标准**：自动测试全部通过；**暂停，请用户确认设置页和执行面板**；手动验收清单走通。
 
-**完成标准**：e2e 里路由到 Claude Code 的任务由（冒充的）Claude Code 跑完、验收；**完成后暂停，请用户确认执行面板和设置页**。
+## 5. 之后的 Agent
 
-## 4. Claude Desktop：KM0 的 MCP 服务器（D1）
+每个 Agent 要的是同一套东西：
 
-- **启动方式**：`KM0 --mcp`（安装好的程序，不打开窗口），以 stdio 方式提供 MCP 服务。它直接读写 KM0 的数据库（SQLite WAL），和打开着的 KM0 窗口互不影响；窗口发现数据有变化时自动刷新。
-- **工具**：
-  - `km0_projects`：列出项目和进度。
-  - `km0_next_task(project)`：下一个可以开始的任务，依赖都已完成。
-  - `km0_task(project, seq)`：任务说明、验收标准、相关决策和文档摘录，与交接包内容一致，并要求 Agent 在 `km0/<编号>-<短名>` 分支上提交。
-  - `km0_report(project, seq, branch, summary)`：回报完成。KM0 只读取这个分支相对基线的 diff，按验收标准判定，结果和 Runner 的运行一样记录和显示。
-- **设置**：“设置 → 执行 → Claude Desktop”显示要加到 `claude_desktop_config.json` 的配置片段，可以一键复制；同时给出 Claude Code 的 `claude mcp add` 命令。
-- **测试**：用 MCP SDK 的客户端驱动服务器（vitest），e2e 里走一遍“领任务 → 在临时仓库里提交 → 回报 → 窗口里看到验收结果”。Claude Desktop 本身写一份手动验收清单。
+- 接入方式：命令行驱动或者 MCP 领取；
+- 输出解析（有结构化输出就读步数和花费，没有就只看退出码和改动）；
+- 预检；
+- 一个冒充的程序和测试。
 
-**完成标准**：自动测试通过；手动清单在一台装了 Claude Desktop 的电脑上走通；**完成后暂停，请用户确认设置页**。
+1.0 的交接包里已经有这些 Agent 的无界面命令，可以直接作为起点：
 
-## 5. 发布 1.1（R1）
+- Codex：`codex exec`
+- Cursor：`agent -p`
+- DSH：`dsh headless`
+- ZCode：`zcode --prompt --mode build`
 
-- 文档：README、DESIGN、发布说明。
-- 全量测试和 `update-test` 通过，三平台安装包。
-- **最终界面验收**。
+WorkBuddy 要先调研它的接入方式。自定义 Agent 走它自己的启动命令模板，只看退出码和改动。
+
+## 6. 应用内更新的真实测试（U1）
+
+- `KM0_UPDATE_FEED=<地址>` 让打包后的程序改用这个更新源（generic provider），“设置 → 关于”会显示来源。
+- 用同一份代码打 `1.1.0-test.1` 和 `1.1.0-test.2` 两个版本，本地 HTTP 服务器提供 test.2，启动 test.1 后走完检查、下载、安装、重启，确认版本号变了、数据还在。
+- Linux（AppImage）和 Windows（NSIS）在 CI 里跑；macOS 未签名，跳过并写明原因。
+- 风险：Playwright 能不能直接驱动打包后的程序，先做最小试验。
 
 ## 阶段与顺序
 
 | 阶段 | 内容 | 完成标准 |
 | --- | --- | --- |
-| U1 更新的真实测试 | `KM0_UPDATE_FEED`；打包后的更新 e2e；CI 任务 | Linux、Windows 的 `update-test` 通过 |
-| C1 Runner：Claude Code 后端 | `agent` 字段、`ClaudeCodeClient`、报告字段、冒充的 `claude` | Runner 0.4.0 发布，三平台 CI 全绿 |
-| C2 KM0：用 Claude Code 执行 | 配置生成、设置、预检、额度统计、执行面板 | e2e 通过；**暂停，确认界面** |
-| D1 MCP 服务器 | `KM0 --mcp`、四个工具、设置页、回报后验收 | 自动测试通过，手动清单走通；**暂停，确认界面** |
+| E1 直接交给 Agent | 第三种执行方式；worktree 和分支；Runner 格式的进度和报告 | 单元测试通过；Runner 和自定义命令照常可用 |
+| E2 Claude Code | `claude -p` 接入、登录、预检、冒充的 `claude` | 单元测试和 e2e 通过 |
+| E3 Claude Desktop | 预置 Agent、`KM0 --mcp`、收件箱、设置页的配置片段 | 配合测试通过；**暂停，确认界面**；手动清单走通 |
+| U1 更新的真实测试 | 第 6 节 | Linux、Windows 在 CI 里通过 |
 | R1 发布 1.1 | 文档、安装包 | **最终界面验收** |
 
-顺序：U1 和 C1 互不依赖，可以并行；C1 → C2 → D1 → R1。
-
-## 需要用户确认
-
-1. Runner 路线图里“不接 pi 以外的 Agent”的决定，改为接入 Claude Code（理由见第 2 节）。
-2. Claude Code 的权限默认用 `acceptEdits` 加工具白名单，不放进容器。
-3. 通过 MCP 做的任务，由 Agent 在用户仓库里建 `km0/…` 分支并提交；KM0 自己仍然只读，不改仓库。
+顺序：E1 → E2 → E3；U1 可以穿插做。
