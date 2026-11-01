@@ -75,10 +75,12 @@ export const en: Messages = {
     },
     execution: {
       intro:
-        "How hand-off packages are run from KM0. By default with KM0 Runner: KM0 writes its config from the routing and Settings → Models, and passes keys only as environment variables.",
+        "How hand-off packages are run from KM0. By default with KM0 Runner: KM0 writes its config from the routing and Settings → Models, and passes keys only as environment variables. Or each task goes straight to the agent it was routed to.",
       kind: "Executor",
-      kinds: { runner: "KM0 Runner (default)", custom: "Custom command" },
+      kinds: { runner: "KM0 Runner (default)", direct: "Straight to agents", custom: "Custom command" },
       kindHints: {
+        direct:
+          "Each task goes to its routed agent: KM0 starts Claude Code, Claude Desktop takes its own. Progress, stopping and judging work as with the Runner.",
         runner:
           "KM0 starts it, shows each task's progress, can stop it at any time, and imports and judges the results when it ends.",
         custom: "A command of your own; KM0 only starts it, shows its output and stops it.",
@@ -88,6 +90,19 @@ export const en: Messages = {
       recheck: "Check again",
       runnerCommand: "How to start the Runner (optional)",
       runnerCommandHint: "Such as /usr/local/bin/km0-runner or python3 -m km0_runner; empty looks on PATH",
+      claudeLogin:
+        "When the provider has an API key or a relay address, KM0 passes it to Claude Code as environment variables; otherwise Claude Code uses its own sign-in. With a subscription sign-in, check that being run this way fits its terms.",
+      claudeCommand: "How to start Claude Code (optional)",
+      claudeCommandHint: "Such as /usr/local/bin/claude; empty looks for claude on PATH",
+      desktopSteps: [
+        "In Claude Desktop, open Settings → Developer → Edit Config, merge the entry below into claude_desktop_config.json and restart Claude Desktop.",
+        "Enable Claude Desktop under Settings → Agents, then give it tasks in the routing table.",
+        'When the run reaches one of its tasks, the task shows "waiting to be taken". Ask Claude Desktop to "do the KM0 tasks": it can read and write only that task\'s folder, reports when done, and KM0 commits, tests and judges the work.',
+      ],
+      desktopConfig: "Claude Desktop config (mcpServers)",
+      claudeCodeMcp: "For interactive Claude Code",
+      copy: "Copy",
+      copied: "Copied",
       automatic: "Find automatically",
       runsDir: "Runs folder",
       config: "Runner config",
@@ -668,6 +683,9 @@ export const en: Messages = {
     title: "Run",
     intro:
       "Run the tasks one by one in the linked repository with KM0 Runner: a branch per task, a stronger model when one gets stuck, and the results imported and judged when it ends.",
+    introDirect:
+      "Each task goes to its routed agent in dependency order, on a branch of its own: KM0 starts Claude Code, Claude Desktop takes its tasks; the results are imported and judged when it ends.",
+    awaitingHint: 'Ask Claude Desktop to "do the KM0 tasks" and it takes this one.',
     introCustom:
       "Run with the command set under Settings → Execution. KM0 only starts it, shows its output and stops it; Runner results are imported if it leaves any.",
     custom: "Custom command · unverified",
@@ -677,14 +695,14 @@ export const en: Messages = {
     keepRunning: "Keep running",
     stopTitle: "Stop this run",
     stopBody:
-      "The Runner stops the current task, commits its changes so far to its branch and marks the remaining tasks cancelled. Finished tasks stay as they are.",
+      "The current task stops, its changes so far are committed to its branch and the remaining tasks are marked cancelled. Finished tasks stay as they are.",
     runLabel: "Run {{runId}}",
     redoOf: "redo of #{{seqs}} on {{runId}}",
     cost: "{{cost}} spent",
     costOfBudget: "{{cost}} of the {{budget}} budget spent",
     progress: "{{done}} of {{total}} tasks done",
     log: "Latest output",
-    imported: "The results are imported and judged; see KM0 Runner acceptance below.",
+    imported: "The results are imported and judged; see Run acceptance below.",
     redo: "Redo #{{seqs}} on a stronger combination",
     status: {
       running: "Running",
@@ -696,6 +714,7 @@ export const en: Messages = {
     },
     taskStatus: {
       waiting: "waiting",
+      awaiting: "waiting to be taken",
       running: "running",
       passed: "passed",
       unjudged: "to judge",
@@ -726,6 +745,9 @@ export const en: Messages = {
         ladder: "Ladder",
         budget: "Budget",
         custom: "Custom command",
+        agents: "Agents",
+        claude: "Claude Code",
+        desktop: "Claude Desktop",
       },
     },
     quit: {
@@ -736,7 +758,7 @@ export const en: Messages = {
     },
   },
   runner: {
-    title: "KM0 Runner acceptance",
+    title: "Run acceptance",
     body: "Import a KM0 Runner run (its runs/<run_id> folder) and the planner model checks each change against the task's acceptance criteria. Every attempt corrects the model's ability estimate, and a rejected task is handed off again to a stronger combination; verdicts are written back to acceptance.jsonl, which the Runner calibrates the routing rules from.",
     import: "Import a run",
     empty: "No runs imported yet.",

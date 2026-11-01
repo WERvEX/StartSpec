@@ -30,7 +30,7 @@ test.afterAll(async () => {
   rmSync(repo, { recursive: true, force: true });
 });
 
-const panel = () => page.getByRole("region", { name: "执行" });
+const panel = () => page.getByRole("region", { name: "执行", exact: true });
 const latestRun = () =>
   panel()
     .getByRole("listitem", { name: /^执行 / })
@@ -96,7 +96,7 @@ test("a run is checked, started, followed, stopped and redone, and its results a
   await expect(latestRun().getByText("通过", { exact: true })).toBeVisible();
   await expect(latestRun().getByText(/结果已导入并验收/)).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("status").filter({ hasText: /已结束，结果正在导入和验收/ })).toBeVisible();
-  const acceptance = page.getByRole("region", { name: "KM0 Runner 验收" });
+  const acceptance = page.getByRole("region", { name: "执行结果验收" });
   await expect(acceptance.getByText("通过", { exact: true }).first()).toBeVisible();
   await page.screenshot({ path: "test-results/screenshots/execution-finished.png", fullPage: true });
 

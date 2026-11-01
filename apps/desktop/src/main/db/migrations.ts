@@ -420,6 +420,40 @@ CREATE TABLE runs (
 CREATE INDEX runs_project ON runs (project_id);
 `,
   },
+  {
+    id: 12,
+    name: "direct_execution",
+    // Claude Desktop joins the presets switched off, able to run the models Claude Code has; runs may now be
+    // `direct` (KM0 hands each task to its agent), which the old CHECK did not allow, so the table is rebuilt.
+    sql: `
+INSERT OR IGNORE INTO agents (id, name, enabled, preference)
+  SELECT 'claude_desktop', 'Claude Desktop', 0, COALESCE(MAX(preference), -1) + 1 FROM agents;
+INSERT OR IGNORE INTO agent_models (agent_id, model_ref)
+  SELECT 'claude_desktop', model_ref FROM agent_models WHERE agent_id = 'claude_code';
+
+CREATE TABLE runs_new (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  run_id TEXT NOT NULL,
+  executor TEXT NOT NULL CHECK (executor IN ('runner', 'direct', 'custom')),
+  status TEXT NOT NULL,
+  run_dir TEXT NOT NULL,
+  seqs_json TEXT NOT NULL DEFAULT '[]',
+  reuse TEXT,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  exit_code INTEGER,
+  error TEXT,
+  cost REAL NOT NULL DEFAULT 0,
+  log_json TEXT NOT NULL DEFAULT '[]',
+  runner_run_ref INTEGER REFERENCES runner_runs(id) ON DELETE SET NULL
+);
+INSERT INTO runs_new SELECT * FROM runs;
+DROP TABLE runs;
+ALTER TABLE runs_new RENAME TO runs;
+CREATE INDEX runs_project ON runs (project_id);
+`,
+  },
 ];
 
 const PRESET_NAMES: Record<string, string> = {

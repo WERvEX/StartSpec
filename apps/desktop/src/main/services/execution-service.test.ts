@@ -5,8 +5,13 @@ import { delimiter, join } from "node:path";
 import { createSimulatedLlm } from "@km0/core";
 import bundledRegistry from "@km0/registry/model-registry.json";
 import { type ExecutionRun, type ModelEntry, ModelRegistry, type RoutingPlan } from "@km0/shared";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createKm0McpServer } from "../../mcp/server";
 import { openDatabase } from "../db/database";
+import { DirectRun } from "../dispatch/direct-run";
+import { putTask, readInbox, removeRun } from "../dispatch/inbox";
 import { nodeExec } from "../node-exec";
 import { nodeRunAccess } from "../node-run-access";
 import { AgentStore } from "./agent-store";
@@ -21,6 +26,7 @@ import { SettingsStore } from "./settings-store";
 
 const fixtures = join(import.meta.dirname, "../../../../../e2e/fixtures");
 const FAKE_RUNNER = `${process.execPath} ${join(fixtures, "fake-runner.mjs")}`;
+const FAKE_CLAUDE = `${process.execPath} ${join(fixtures, "fake-claude.mjs")}`;
 const PATH = process.env.PATH;
 
 beforeAll(() => {
@@ -70,15 +76,44 @@ async function setup({ port = nodeExec() as ReturnType<typeof nodeExec> | null }
   );
   const updates: ExecutionRun[] = [];
   const runsDir = mkdtempSync(join(tmpdir(), "km0-exec-runs-"));
-  const execution = new ExecutionService(db, port, settings, routing, handoff, runner, language, runsDir, (run) =>
-    updates.push(run),
+  const inboxDir = join(runsDir, "..", `${runsDir.split(/[\\/]/).at(-1)}-dispatch`);
+  const execution = new ExecutionService(
+    db,
+    port,
+    settings,
+    routing,
+    handoff,
+    runner,
+    language,
+    runsDir,
+    (run) => updates.push(run),
+    {
+      inboxDir,
+      mcp: { command: "km0", args: ["km0-mcp.cjs"], env: {} },
+      version: "1.1.0",
+      startRun: (options) => new DirectRun(options),
+      forget: (runId) => removeRun(inboxDir, runId),
+    },
   );
   execution.setSettings({ ...execution.getSettings(), runnerCommand: FAKE_RUNNER });
   const projects = new ProjectService(db, () => llm, language);
   let project = await projects.create("修复登录页按钮上的错别字", null);
   project = await projects.advance(project.id, true);
   await routing.plan(project.id);
-  return { db, settings, execution, runner, routing, handoff, updates, runsDir, projectId: project.id };
+  return {
+    db,
+    settings,
+    agents,
+    execution,
+    runner,
+    routing,
+    handoff,
+    updates,
+    runsDir,
+    inboxDir,
+    records,
+    projectId: project.id,
+  };
 }
 
 const linkRepo = (db: ReturnType<typeof openDatabase>, projectId: number, path = gitRepo()) => {
@@ -254,6 +289,57 @@ describe("execution", () => {
     const run = await until(again, projectId, (item) => item.status !== "running");
     expect(run).toMatchObject({ status: "interrupted", error: expect.stringMatching(/还没有结束/) });
   });
+
+  it("takes a direct run's waiting tasks out of the inbox when KM0 closed during it", async () => {
+    const { db, settings, routing, handoff, runner, projectId } = await setup();
+    const runDir = mkdtempSync(join(tmpdir(), "km0-exec-stale-"));
+    const inboxDir = mkdtempSync(join(tmpdir(), "km0-exec-inbox-"));
+    db.prepare(
+      `INSERT INTO runs (project_id, run_id, executor, status, run_dir, started_at) VALUES (?, 'gone', 'direct', 'running', ?, ?)`,
+    ).run(projectId, runDir, new Date().toISOString());
+    const waiting = {
+      version: 1 as const,
+      runId: "gone",
+      taskId: "01",
+      seq: 1,
+      title: "t",
+      projectTitle: "p",
+      agent: "claude_desktop",
+      model: null,
+      worktree: runDir,
+      branch: "km0/gone/01",
+      prompt: "",
+      testCommand: null,
+      acceptance: [],
+      language: "zh-CN" as const,
+      state: "waiting" as const,
+      createdAt: new Date().toISOString(),
+      claimedAt: null,
+      report: null,
+    };
+    await putTask(inboxDir, { ...waiting, ref: "gone/01" });
+    await putTask(inboxDir, { ...waiting, ref: "other/01", runId: "other" });
+    const again = new ExecutionService(
+      db,
+      nodeExec(),
+      settings,
+      routing,
+      handoff,
+      runner,
+      () => "zh-CN",
+      "runs",
+      () => undefined,
+      {
+        inboxDir,
+        mcp: null,
+        version: "1.1.0",
+        startRun: (options) => new DirectRun(options),
+        forget: (runId) => removeRun(inboxDir, runId),
+      },
+    );
+    await until(again, projectId, (item) => item.status === "interrupted");
+    expect((await readInbox(inboxDir)).map((task) => task.ref)).toEqual(["other/01"]);
+  });
 });
 
 /**
@@ -301,6 +387,92 @@ describe.runIf(process.env.KM0_RUNNER_REAL)("execution with the real KM0 Runner"
 });
 
 describe("progress", () => {
+  it("hands tasks straight to Claude Code and Claude Desktop, then imports and judges them", async () => {
+    const { db, settings, agents, execution, runner, routing, inboxDir, records, projectId } = await setup();
+    const repo = linkRepo(db, projectId);
+    execution.setSettings({ ...execution.getSettings(), kind: "direct", claudeCommand: FAKE_CLAUDE });
+    const status = await execution.status();
+    expect(status.claude).toMatchObject({ found: true, version: "2.1.316", ok: true });
+    expect(status.mcp).toEqual({ command: "km0", args: ["km0-mcp.cjs"], env: {} });
+
+    let check = await execution.precheck(projectId);
+    expect(check.items.map((item) => item.id)).toEqual(["repo", "agents", "claude", "budget"]);
+    expect(check.items.find((item) => item.id === "claude")?.detail).toMatch(
+      /Claude Code 2\.1\.316；使用 Claude Code 自己的登录/,
+    );
+    giveKey(settings);
+    check = await execution.precheck(projectId);
+    expect(check.ok).toBe(true);
+    expect(check.items.find((item) => item.id === "claude")?.detail).toMatch(/密钥只通过环境变量/);
+
+    // Claude Code first.
+    const first = await execution.start(projectId);
+    expect(first).toMatchObject({ executor: "direct", status: "running" });
+    let done = await until(execution, projectId, (run) => run.status !== "running" && run.importedRunRef !== null);
+    expect(done).toMatchObject({ status: "finished", exitCode: 0, error: null });
+    expect(done.tasks).toEqual([
+      expect.objectContaining({ seq: 1, agent: "claude_code", status: "unjudged", cost: 0.0125 }),
+    ]);
+    expect(done.log).toContain(`→ Write ${join(first.runDir, "worktrees", "01", "claude-01.txt")}`);
+    expect(execSync(`git show km0/${first.runId}/01:claude-01.txt`, { cwd: repo, encoding: "utf8" })).toMatch(
+      /task 01/,
+    );
+    expect(runner.list(projectId)[0]?.results[0]?.accepted).toBe(true);
+    // The verdict's run record names the agent that did the work.
+    expect(records.all().some((record) => record.agent === "claude_code")).toBe(true);
+
+    // Then the same task, given by hand to Claude Desktop: it waits until Claude Desktop takes it over MCP.
+    const [task] = (routing.get(projectId) as RoutingPlan).tasks;
+    const desktop = agents.list().find((agent) => agent.id === "claude_desktop");
+    expect(desktop).toMatchObject({ enabled: false, name: "Claude Desktop" });
+    agents.update("claude_desktop", true, desktop?.models.map((model) => model.modelRef) ?? []);
+    await routing.override(projectId, task?.id ?? 0, { agent: "claude_desktop" });
+    check = await execution.precheck(projectId);
+    expect(check.items.map((item) => item.id)).toEqual(["repo", "agents", "desktop", "budget"]);
+    const second = await execution.start(projectId);
+    await until(execution, projectId, (run) => run.id === second.id && run.tasks[0]?.status === "awaiting");
+
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    await createKm0McpServer(inboxDir).connect(serverSide);
+    const client = new Client({ name: "scripted-claude-desktop", version: "1.0.0" });
+    await client.connect(clientSide);
+    const call = async (name: string, args: Record<string, unknown> = {}) =>
+      ((await client.callTool({ name, arguments: args })) as { content: { text: string }[] }).content[0]?.text ?? "";
+    const ref = `${second.runId}/01`;
+    expect(await call("km0_next_task")).toContain(`已领取任务 ${ref}`);
+    await until(execution, projectId, (run) => run.id === second.id && run.tasks[0]?.status === "running");
+    await call("km0_write_file", { task_ref: ref, path: "app.txt", content: "hello, fixed\n" });
+    await call("km0_report", { task_ref: ref, status: "done", summary: "Fixed the typo." });
+    done = await until(execution, projectId, (run) => run.id === second.id && run.importedRunRef !== null);
+    await client.close();
+    expect(done.tasks).toEqual([expect.objectContaining({ agent: "claude_desktop", status: "unjudged" })]);
+    expect(execSync(`git show km0/${second.runId}/01:app.txt`, { cwd: repo, encoding: "utf8" })).toBe("hello, fixed\n");
+    // The user's checkout is never touched.
+    expect(readFileSync(join(repo, "app.txt"), "utf8")).toBe("hello\n");
+  });
+
+  it("says which tasks the direct executor cannot hand to their agent", async () => {
+    const { db, execution, routing, agents, projectId } = await setup();
+    linkRepo(db, projectId);
+    execution.setSettings({ ...execution.getSettings(), kind: "direct", claudeCommand: FAKE_CLAUDE });
+    const [task] = (routing.get(projectId) as RoutingPlan).tasks;
+    // Pi runs any model; the direct executor cannot start it.
+    const models = agents.list().find((agent) => agent.id === "claude_code")?.models ?? [];
+    agents.update(
+      "pi",
+      true,
+      models.map((model) => model.modelRef),
+    );
+    await routing.override(projectId, task?.id ?? 0, { agent: "pi" });
+    const check = await execution.precheck(projectId);
+    expect(check.ok).toBe(false);
+    expect(check.items.find((item) => item.id === "agents")).toMatchObject({
+      ok: false,
+      fix: "routing",
+      detail: expect.stringMatching(/01 Pi/),
+    });
+  });
+
   it("folds events into tasks and skips what it cannot read", () => {
     const lines = [
       {

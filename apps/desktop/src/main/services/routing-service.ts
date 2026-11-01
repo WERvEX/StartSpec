@@ -85,6 +85,12 @@ const BasedOn = z.array(z.object({ kind: z.enum(["prd", "tech_design", "brief"])
 const Seqs = z.array(z.number().int());
 const Failures = z.array(TaskFailure);
 
+/** The agent behind an attempt of a run: the direct executor names it; KM0 Runner's attempts are pi's. */
+const attemptAgent = (attempt: RunnerAttempt) => {
+  const agent = (attempt as { agent?: unknown }).agent;
+  return typeof agent === "string" && agent ? agent : "pi";
+};
+
 /**
  * Task breakdown and routing. The planner proposes tasks and describes them; difficulty, agents,
  * models and costs are computed each time the plan is read, so changes to the agents and models, the
@@ -313,7 +319,8 @@ export class RoutingService {
           const passed = verdict.accepted && index === verdict.attempts.length - 1;
           return [
             {
-              ...this.runRecord(task, "pi", model.modelRef, passed, verdict.byUser ? 2 : 1),
+              // KM0 Runner runs pi; the direct executor says which agent did the work.
+              ...this.runRecord(task, attemptAgent(attempt), model.modelRef, passed, verdict.byUser ? 2 : 1),
               source: "acceptance" as const,
               projectId,
               taskId: row.id,

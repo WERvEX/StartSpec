@@ -68,7 +68,7 @@
   - 中途停止时，等待领取的任务被取消。
 
   单元测试和 e2e 各跑一遍，e2e 截图给界面验收用。
-- **手动验收清单**：在一台装了 Claude Code 和 Claude Desktop 的电脑上，用真实的两个 Agent 走一遍同样的三个任务。
+- **手动验收清单**（[checklists/claude-agents.md](checklists/claude-agents.md)）：在一台装了 Claude Code 和 Claude Desktop 的电脑上，用真实的两个 Agent 走一遍同样的三个任务。
 - **真实调用测试**：`KM0_CLAUDE_REAL=1` 时用真实的 `claude` 跑 Claude Code 那一半，默认不跑。
 
 **完成标准**：自动测试全部通过；**暂停，请用户确认设置页和执行面板**；手动验收清单走通。
@@ -102,9 +102,9 @@ WorkBuddy 要先调研它的接入方式。自定义 Agent 走它自己的启动
 
 | 阶段 | 内容 | 完成标准 |
 | --- | --- | --- |
-| E1 直接交给 Agent | 第三种执行方式；worktree 和分支；Runner 格式的进度和报告 | 单元测试通过；Runner 和自定义命令照常可用 |
-| E2 Claude Code | `claude -p` 接入、登录、预检、冒充的 `claude` | 单元测试和 e2e 通过 |
-| E3 Claude Desktop | 预置 Agent、`KM0 --mcp`、收件箱、设置页的配置片段 | 配合测试通过；**暂停，确认界面**；手动清单走通 |
+| E1 直接交给 Agent（已完成） | 第三种执行方式；worktree 和分支；Runner 格式的进度和报告 | 单元测试通过；Runner 和自定义命令照常可用 |
+| E2 Claude Code（已完成） | `claude -p` 接入、登录、预检、冒充的 `claude` | 单元测试和 e2e 通过 |
+| E3 Claude Desktop（已完成，待界面确认和手动验收） | 预置 Agent、`KM0 --mcp`、收件箱、设置页的配置片段 | 配合测试通过；**暂停，确认界面**；手动清单走通 |
 | U1 更新的真实测试 | 第 6 节 | Linux、Windows 在 CI 里通过 |
 | R1 发布 1.1 | 文档、安装包 | **最终界面验收** |
 

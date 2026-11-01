@@ -48,8 +48,19 @@ describe("agent catalog", () => {
   it("starts with every agent enabled in order and Claude Code's models filled in", () => {
     const { agents } = setup();
     const list = agents.list();
-    expect(list.map((agent) => agent.id)).toEqual(["claude_code", "codex", "cursor", "pi", "dsh", "zcode", "generic"]);
-    expect(list.every((agent) => agent.enabled)).toBe(true);
+    expect(list.map((agent) => agent.id)).toEqual([
+      "claude_code",
+      "codex",
+      "cursor",
+      "pi",
+      "dsh",
+      "zcode",
+      "generic",
+      "claude_desktop",
+    ]);
+    // Claude Desktop (1.1) comes switched off: it only takes tasks someone asks it to, through KM0's MCP server.
+    expect(list.filter((agent) => !agent.enabled).map((agent) => agent.id)).toEqual(["claude_desktop"]);
+    expect(list.at(-1)?.models.map((model) => model.modelId)).toEqual(list[0]?.models.map((model) => model.modelId));
     // The models KM0 0.1 shipped for Claude Code, labelled by their registry ability, priced by the registry.
     expect(list[0]?.models.map((model) => [model.modelId, model.tier, model.native, model.price.source])).toEqual([
       ["claude-haiku-5-5", "T1", true, "registry"],

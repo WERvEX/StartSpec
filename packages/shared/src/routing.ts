@@ -17,11 +17,21 @@ export const AgentId = z
   .regex(/^[a-z][a-z0-9_-]{0,39}$/, "An agent ID is lower-case letters, digits, '-' and '_'.");
 export type AgentId = z.infer<typeof AgentId>;
 
-export const PRESET_AGENT_IDS = ["claude_code", "codex", "cursor", "pi", "dsh", "zcode", "generic"] as const;
+export const PRESET_AGENT_IDS = [
+  "claude_code",
+  "claude_desktop",
+  "codex",
+  "cursor",
+  "pi",
+  "dsh",
+  "zcode",
+  "generic",
+] as const;
 export type PresetAgentId = (typeof PRESET_AGENT_IDS)[number];
 
 export const AGENT_NAMES: Record<PresetAgentId, string> = {
   claude_code: "Claude Code",
+  claude_desktop: "Claude Desktop",
   codex: "Codex",
   cursor: "Cursor",
   pi: "Pi",
@@ -38,6 +48,7 @@ export const isPresetAgent = (id: string): id is PresetAgentId => (PRESET_AGENT_
  */
 export const PRESET_AGENTS: Record<PresetAgentId, { nativeVendors: string[]; apiKinds: ProviderKind[] }> = {
   claude_code: { nativeVendors: ["anthropic"], apiKinds: ["anthropic"] },
+  claude_desktop: { nativeVendors: ["anthropic"], apiKinds: ["anthropic"] },
   codex: { nativeVendors: ["openai"], apiKinds: ["openai"] },
   cursor: { nativeVendors: ["cursor"], apiKinds: [] },
   pi: { nativeVendors: [], apiKinds: [] },

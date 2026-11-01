@@ -208,6 +208,32 @@ km0/agents/km0.mdc
 
 网页调试版不能启动本地程序，执行入口显示为不可用并说明原因。
 
+### 直接交给 Agent（1.1）
+
+第三种执行方式。KM0 只负责规划每个任务由哪个 Agent 的哪个模型来做，然后把任务原样交给它；执行中不切换模型（Runner 仍然按自己的规则切换）。目前能直接交付的 Agent 是 Claude Code 和 Claude Desktop（`DIRECT_AGENTS`），其他 Agent 的任务在预检里列出、阻止开始。
+
+- **执行过程**（`apps/desktop/src/main/dispatch/direct-run.ts`，在主进程里运行）：
+  1. 按依赖顺序，给每个任务在运行目录下建 worktree，分支 `km0/<run_id>/<NN>`。有依赖的任务从第一个上游分支开始，再依次合并其他上游分支，冲突就标为“阻塞”。
+  2. 把交接包的 `km0/` 复制进 worktree，交给 Agent。
+  3. Agent 结束后，把剩下的改动（不含 `km0/`）提交到任务分支，有测试命令就运行。
+  4. 写报告（`report_version: 2`，多一个 `agent` 字段，`attempts[].agent` 也记下），然后删掉 worktree，保留分支。
+
+  运行目录里的 `progress.jsonl`、`reports/`、`diffs/`、`summary.json`、`STOP` 和退出码（0、1、3）都和 KM0 Runner 一样，所以面板、停止、导入、验收、本地记录和重做都不用区分执行方式。新增的进度事件是 `task_waiting`（等待领取）和 `task_claimed`。
+- **Claude Code**（`dispatch/claude-code.ts`）：
+  - 命令：`claude -p --output-format stream-json --verbose --permission-mode acceptEdits --model <模型> [--max-budget-usd <剩余预算>] --allowedTools …`，提示词从 stdin 传入。
+  - 读输出：每次工具调用算一步，并写进“最近的输出”；`result` 事件给出花费、token 用量和是否出错。
+  - 停止：结束整个进程组，Windows 上用 `taskkill /T`。
+  - 登录：服务商有 Key 或地址时，通过 `ANTHROPIC_API_KEY`、`ANTHROPIC_BASE_URL` 传入；没有时用 Claude Code 自己的登录，设置页提示用户自行确认订阅条款。
+- **Claude Desktop**：预置 Agent，默认不启用，能用的模型和 Claude Code 一样，由用户在路由表里手动指定。
+  - 执行到它的任务时，KM0 在数据文件夹的 `dispatch/` 里写一个任务文件（`dispatch/inbox.ts`）并等待回报。
+  - Claude Desktop 通过 KM0 的 MCP 服务器（`src/mcp/server.ts`）调用 `km0_next_task` 领取任务，用 `km0_list_files`、`km0_read_file`、`km0_write_file`、`km0_delete_file` 修改，用 `km0_run_tests` 跑测试，最后 `km0_report`。
+  - 这些文件工具只能访问任务的 worktree：不能用 `..` 跳出，不能碰 `.git`，符号链接按真实路径检查。
+  - MCP 服务器是一个独立的脚本（esbuild 打包成 `out/mcp/km0-mcp.cjs`，安装包里放在 asar 之外的 `resources/km0-mcp.cjs`），由 KM0 自己的可执行文件以 `ELECTRON_RUN_AS_NODE=1` 运行；它不碰数据库，只读写 `dispatch/`。“设置 → 执行”给出要加进 `claude_desktop_config.json` 的片段，以及交互式 Claude Code 用的 `claude mcp add` 命令。
+- **测试**：
+  - `e2e/fixtures/fake-claude.mjs` 冒充 `claude`；单测和 e2e 里由脚本化的 MCP 客户端扮演 Claude Desktop。e2e 用设置页给出的片段原样启动 MCP 服务器。
+  - `KM0_CLAUDE_REAL=1` 时用真实的 `claude` 跑一个小任务。
+  - 真实环境的手动验收见 [checklists/claude-agents.md](checklists/claude-agents.md)。
+
 ### 更新、备份与评测（正式版 R6）
 
 - **应用内更新**：electron-updater 读 GitHub Releases（`electron-builder.yml` 的 `publish`）。启动 8 秒后按偏好检查一次；下载和重启都由用户在“设置 → 关于”里点，进度和说明都在页面里，有执行没结束时重启前同样先询问。开发版、网页调试版、非 AppImage 的 Linux 安装和未签名的 macOS 版本不更新，并说明原因。

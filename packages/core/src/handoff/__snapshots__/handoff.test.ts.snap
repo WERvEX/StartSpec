@@ -19,6 +19,18 @@ exports[`adapters > claude_code renders its instructions and command consistentl
 }
 `;
 
+exports[`adapters > claude_desktop renders its instructions and command consistently 1`] = `
+{
+  "command": null,
+  "commandWithoutModel": null,
+  "howTo": {
+    "en": "Add KM0's MCP server to Claude Desktop under Settings → Execution, then ask Claude Desktop to "do the KM0 tasks": it takes a task, edits the task's working folder and reports back. Or paste the task file into a chat.",
+    "zh-CN": "在“设置 → 执行”里把 KM0 的 MCP 服务器加到 Claude Desktop，然后在 Claude Desktop 里说“做 KM0 的任务”：它会领取任务、在任务的工作目录里修改并回报。也可以把任务文件的内容整段粘贴进对话。",
+  },
+  "instructions": null,
+}
+`;
+
 exports[`adapters > codex renders its instructions and command consistently 1`] = `
 {
   "command": "codex exec -m model-x -s workspace-write "阅读 km0/tasks/01.md 并完成其中描述的任务。"",
