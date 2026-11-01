@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import type { RunningProcess } from "../services/exec-port";
 import { type AgentOutcome, type AgentRun, runClaudeCode } from "./claude-code";
 import { AUTHOR, EXCLUDES, GitError, git, gitDiff } from "./git";
-import { findTask, type InboxTask, putTask, readInbox, removeTask, updateTask } from "./inbox";
+import { findTask, type InboxTask, putTask, readInbox, removeRun, removeTask, updateTask } from "./inbox";
 
 /**
  * KM0's direct executor: each task goes straight to the agent the plan routed it to, in dependency order. Every
@@ -137,6 +137,8 @@ function runShell(
 export class DirectRun implements RunningProcess {
   readonly exited: Promise<{ code: number | null; signal: string | null }>;
   private cancelled = false;
+  /** Marking this run's inbox tasks cancelled, once a stop was asked for; awaited before they are removed. */
+  private cancelling: Promise<void> = Promise.resolve();
   private current: AgentRun | null = null;
   private seqNo = 0;
   private spent = 0;
@@ -159,7 +161,7 @@ export class DirectRun implements RunningProcess {
   terminate(): void {
     this.cancelled = true;
     this.current?.stop();
-    void this.cancelInbox();
+    this.cancelling = this.cancelInbox().catch(() => undefined);
   }
 
   kill(): void {
@@ -237,6 +239,9 @@ export class DirectRun implements RunningProcess {
       ...counts,
       cost: this.spent,
     });
+    // Nothing of this run stays in the inbox for an agent to take.
+    await this.cancelling;
+    await removeRun(options.inboxDir, options.runId);
     await this.emit("run_finished", { status: this.cancelled ? "cancelled" : "completed", cost: this.spent });
     await this.writes;
     if (this.cancelled) return EXIT_CANCELLED;
@@ -488,6 +493,8 @@ export class DirectRun implements RunningProcess {
         await new Promise((resolve) => setTimeout(resolve, this.pollMs));
       }
     } finally {
+      // A stop marks the task cancelled in the inbox; let that finish first, or it would write the file back.
+      await this.cancelling;
       await removeTask(options.inboxDir, ref);
     }
   }
