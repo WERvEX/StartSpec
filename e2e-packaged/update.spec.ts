@@ -123,9 +123,12 @@ async function launch(executablePath: string): Promise<{ app: ElectronApplicatio
     },
     timeout: 120_000,
   });
-  const page = await app.firstWindow();
+  const page = await app.firstWindow({ timeout: 90_000 });
+  // A packaged app starts slowly on CI (an AppImage unpacks itself first).
   await expect
-    .poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible() ?? false))
+    .poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible() ?? false), {
+      timeout: 90_000,
+    })
     .toBe(true);
   await page.setViewportSize({ width: 1280, height: 800 });
   return { app, page };
