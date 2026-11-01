@@ -64,11 +64,13 @@ export const zhCN = {
     tabs: { models: "模型", agents: "Agent", execution: "执行", search: "搜索服务", general: "通用", about: "关于" },
     execution: {
       intro:
-        "交接包怎么从 KM0 里执行。默认用 KM0 Runner：KM0 根据路由结果和“设置 → 模型”生成它的配置，密钥只通过环境变量交给它。",
+        "交接包怎么从 KM0 里执行。默认用 KM0 Runner：KM0 根据路由结果和“设置 → 模型”生成它的配置，密钥只通过环境变量交给它。也可以把每个任务直接交给路由给它的 Agent。",
       kind: "执行方式",
-      kinds: { runner: "KM0 Runner（默认）", custom: "自定义命令" },
+      kinds: { runner: "KM0 Runner（默认）", direct: "直接交给 Agent", custom: "自定义命令" },
       kindHints: {
         runner: "KM0 启动它、显示每个任务的进度、可以随时停止，结束后自动导入结果并验收。",
+        direct:
+          "每个任务交给路由选定的 Agent：Claude Code 由 KM0 启动，Claude Desktop 来领取。进度、停止和验收和 Runner 一样。",
         custom: "填一条命令，KM0 只负责启动、显示输出和停止。",
       },
       unverified: "未验证",
@@ -93,6 +95,19 @@ export const zhCN = {
       customEnv: "环境变量（可选）",
       customEnvHint: "每行一个 KEY=value",
       invalidEnv: "每行要写成 KEY=value，KEY 只能用字母、数字和下划线",
+      claudeLogin:
+        "服务商配了 API Key 或中转地址时，KM0 通过环境变量交给 Claude Code；没配时它用自己的登录。用订阅登录时，请自行确认这样调用符合订阅条款。",
+      claudeCommand: "Claude Code 启动方式（可选）",
+      claudeCommandHint: "例如 /usr/local/bin/claude；留空则在 PATH 里查找 claude",
+      desktopSteps: [
+        "在 Claude Desktop 的“设置 → 开发者 → 编辑配置”里，把下面的内容合并进 claude_desktop_config.json，然后重启 Claude Desktop。",
+        "在“设置 → Agent”里启用 Claude Desktop，然后在路由表里把任务指定给它。",
+        "执行到它的任务时，任务会显示“等待领取”。这时在 Claude Desktop 里说“做 KM0 的任务”：它只能读写这个任务的工作目录，做完会回报，KM0 再提交、测试和验收。",
+      ],
+      desktopConfig: "Claude Desktop 配置（mcpServers）",
+      claudeCodeMcp: "在交互式的 Claude Code 里使用",
+      copy: "复制",
+      copied: "已复制",
       save: "保存",
     },
     models: {
@@ -382,6 +397,7 @@ export const zhCN = {
         install: "重启并安装",
         open: "查看",
         auto: "启动时自动检查更新",
+        feed: "更新来源：{{url}}（由 KM0_UPDATE_FEED 指定）",
       },
       version: "版本",
       dataDir: "数据目录",
@@ -650,20 +666,23 @@ export const zhCN = {
       "用 KM0 Runner 在关联的仓库里逐个执行任务：每个任务一个分支，卡住时沿阶梯换更强的模型，结束后自动导入结果并验收。",
     introCustom:
       "用你在“设置 → 执行”里填写的命令执行。KM0 只负责启动、显示输出和停止；结束后如果有 Runner 格式的结果就导入。",
+    introDirect:
+      "按依赖顺序把每个任务交给路由选定的 Agent：每个任务一个分支，Claude Code 由 KM0 启动，Claude Desktop 来领取；结束后自动导入结果并验收。",
+    awaitingHint: "在 Claude Desktop 里说“做 KM0 的任务”，它会领取这个任务。",
     custom: "自定义命令 · 未验证",
     start: "执行",
     stop: "停止",
     stopping: "正在停止…",
     keepRunning: "继续执行",
     stopTitle: "停止这次执行",
-    stopBody: "Runner 会停下当前任务、把已有改动提交到它的分支，并把剩下的任务标为已取消。已完成的任务不受影响。",
+    stopBody: "当前任务会停下，已有改动提交到它的分支，剩下的任务标为已取消。已完成的任务不受影响。",
     runLabel: "执行 {{runId}}",
     redoOf: "重做 #{{seqs}}，基于 {{runId}}",
     cost: "已花费 {{cost}}",
     costOfBudget: "已花费 {{cost}} / 预算 {{budget}}",
     progress: "{{done}} / {{total}} 个任务已结束",
     log: "最近的输出",
-    imported: "结果已导入并验收，见下方“KM0 Runner 验收”。",
+    imported: "结果已导入并验收，见下方“执行结果验收”。",
     redo: "从更强的组合重做 #{{seqs}}",
     status: {
       running: "执行中",
@@ -675,6 +694,7 @@ export const zhCN = {
     },
     taskStatus: {
       waiting: "等待",
+      awaiting: "等待领取",
       running: "执行中",
       passed: "通过",
       unjudged: "待验收",
@@ -705,6 +725,9 @@ export const zhCN = {
         ladder: "阶梯",
         budget: "预算",
         custom: "自定义命令",
+        agents: "Agent",
+        claude: "Claude Code",
+        desktop: "Claude Desktop",
       },
     },
     quit: {
@@ -715,7 +738,7 @@ export const zhCN = {
     },
   },
   runner: {
-    title: "KM0 Runner 验收",
+    title: "执行结果验收",
     body: "导入 KM0 Runner 的一次运行（runs/<run_id> 文件夹），由规划模型逐个对照验收标准判定。每次尝试都会修正模型的能力估计，未通过的任务会换到更强的组合重新分发；判定结果写回 acceptance.jsonl，供 Runner 校准路由规则。",
     import: "导入运行",
     empty: "还没有导入过运行。",

@@ -32,6 +32,8 @@ export const UpdateState = z.object({
   /** Why updating is unsupported here, or what went wrong. */
   detail: z.string().nullable(),
   checkedAt: z.string().nullable(),
+  /** Where updates come from when it is not KM0's GitHub releases (KM0_UPDATE_FEED); shown so it never goes unnoticed. */
+  feed: z.string().nullable(),
 });
 export type UpdateState = z.infer<typeof UpdateState>;
 

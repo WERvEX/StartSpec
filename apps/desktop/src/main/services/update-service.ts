@@ -8,6 +8,8 @@ export interface UpdaterPort {
   download(onProgress: (percent: number) => void): Promise<void>;
   /** Quit and install the downloaded version. */
   install(): void;
+  /** The update source when it is not KM0's GitHub releases. */
+  feed?: string | null;
 }
 
 const TEXT = {
@@ -53,6 +55,7 @@ export class UpdateService {
       percent: null,
       detail: port ? null : TEXT[language()][unsupported],
       checkedAt: null,
+      feed: port?.feed ?? null,
     };
   }
 

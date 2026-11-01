@@ -4,7 +4,7 @@ KM0 是编码 Agent 的上游：你用一句话描述要做的事，KM0 判断�
 
 名字取自“零公里”：所有道路的里程都从这里起算。
 
-> 当前版本 1.0（[发布说明](docs/releases/v1.0.0.md)）。设置环境变量 `KM0_FAKE_LLM=1` 可以用模拟模型体验流程，不需要 API Key。设计见 [docs/DESIGN.md](docs/DESIGN.md)，1.0 的规划见 [docs/ROADMAP-1.0.md](docs/ROADMAP-1.0.md)。
+> 当前版本 1.0（[发布说明](docs/releases/v1.0.0.md)）。设置环境变量 `KM0_FAKE_LLM=1` 可以用模拟模型体验流程，不需要 API Key。设计见 [docs/DESIGN.md](docs/DESIGN.md)，1.0 的规划见 [docs/ROADMAP-1.0.md](docs/ROADMAP-1.0.md)，下一版（1.1）的规划见 [docs/ROADMAP-1.1.md](docs/ROADMAP-1.1.md)。
 
 ## 下载
 
@@ -91,6 +91,7 @@ pnpm typecheck    # 类型检查
 pnpm lint         # Biome 检查
 pnpm build        # 构建到 apps/desktop/out
 pnpm e2e          # Playwright 端到端测试，包括桌面版和网页版（需先 pnpm build；Linux 无显示环境时用 xvfb-run -a pnpm e2e）
+pnpm e2e:update:build && pnpm e2e:update   # 用打包后的程序真实测试一次应用内更新（Linux、Windows）
 pnpm package      # 生成当前平台的安装包到 apps/desktop/release
 pnpm registry:fetch && pnpm registry:build   # 重新抓取榜单并生成模型注册表
 pnpm eval:record && pnpm eval:replay          # 离线评测：录制模型回答、回放评分（见 packages/eval/README.md）
@@ -116,6 +117,7 @@ packages/registry 模型注册表：从公开榜单拟合每个模型的能力�
 packages/eval     离线评测集：拆解是否保留验收条件、验收评审是否与隐藏测试一致（见 packages/eval/README.md）
 apps/desktop      Electron 应用：主进程、预加载脚本、React 界面，以及网页调试版入口
 e2e/              Playwright 端到端测试
+e2e-packaged/     打包后的程序的测试（应用内更新）
 docs/DESIGN.md    设计文档
 ```
 

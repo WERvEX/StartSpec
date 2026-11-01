@@ -1,12 +1,16 @@
 import type { Language } from "@km0/core";
 import {
   AppError,
+  CLAUDE_CODE_MIN_VERSION,
+  DIRECT_AGENTS,
   type ExecTask,
   type ExecTaskStatus,
   type ExecutionRun,
   type ExecutionStatus,
   ExecutorSettings,
   type ExecutorStatus,
+  type HandoffPackage,
+  type McpSetup,
   type ModelEntry,
   PI_VERSION,
   type Precheck,
@@ -16,6 +20,8 @@ import {
   type ToolCheck,
 } from "@km0/shared";
 import { type Database, nowIso } from "../db/sql";
+// Types only: the executor itself is Node code, handed in by the desktop app so the browser build never loads it.
+import type { DirectRunOptions, DirectTask } from "../dispatch/direct-run";
 import type { ExecPort, RunningProcess } from "./exec-port";
 import type { HandoffService } from "./handoff-service";
 import { KeyedLock } from "./lock";
@@ -38,7 +44,7 @@ interface RunRow {
   id: number;
   project_id: number;
   run_id: string;
-  executor: "runner" | "custom";
+  executor: "runner" | "direct" | "custom";
   status: ExecutionStatus;
   run_dir: string;
   seqs_json: string;
@@ -89,6 +95,7 @@ export function applyProgress(state: ProgressState, lines: string[]): ProgressSt
             seq: Number.parseInt(item.task_id, 10) || 0,
             title: item.title,
             status: "waiting",
+            agent: null,
             tier: null,
             model: null,
             cost: 0,
@@ -98,7 +105,17 @@ export function applyProgress(state: ProgressState, lines: string[]): ProgressSt
         }
         break;
       case "task_started":
-        if (task) Object.assign(task, { status: "running", tier: String(event.tier ?? "") || null });
+        if (task) {
+          Object.assign(task, { status: "running", tier: String(event.tier ?? "") || null });
+          if (typeof event.agent === "string") task.agent = event.agent;
+        }
+        break;
+      // The direct executor handed the task to an agent that takes its own work, which then took it.
+      case "task_waiting":
+        if (task) task.status = "awaiting";
+        break;
+      case "task_claimed":
+        if (task) task.status = "running";
         break;
       case "attempt_started":
         if (task && event.purpose !== "merge") {
@@ -164,7 +181,7 @@ function newRunId(now = new Date()): string {
 const TEXT = {
   "zh-CN": {
     web: "网页调试版不能启动本地程序。请在桌面版里执行，或者导出交接包后自己运行 KM0 Runner。",
-    noRepo: "这个项目还没有关联本地仓库：Runner 要在一个 git 仓库里为每个任务建分支。",
+    noRepo: "这个项目还没有关联本地仓库：执行时要在一个 git 仓库里为每个任务建分支。",
     notGit: (path: string) => `${path} 不是 git 仓库。`,
     repo: (path: string) => path,
     runnerMissing: "没有找到 KM0 Runner：安装后放进 PATH，或者在“设置 → 执行”里填写启动方式。",
@@ -192,10 +209,22 @@ const TEXT = {
     judgeFailed: (message: string) => `结果已导入，但验收没有完成：${message}`,
     exited: (code: number | null) => `执行进程退出，退出码 ${code ?? "无"}。`,
     interrupted: "KM0 关闭时这个执行还没有结束。",
+    directAgents: (count: number) =>
+      `${count} 个任务直接交给对应的 Agent：Claude Code 自动执行，Claude Desktop 等它来领取。`,
+    unsupported: (tasks: string) =>
+      `这些任务分给了不能直接执行的 Agent：${tasks}。在路由表里改成 Claude Code 或 Claude Desktop，或者改用 KM0 Runner 执行。`,
+    claudeMissing:
+      "没有找到 Claude Code：npm install -g @anthropic-ai/claude-code，或者在“设置 → 执行”里填写启动方式。",
+    claudeOld: (version: string) => `Claude Code ${version} 太旧，需要 ${CLAUDE_CODE_MIN_VERSION} 或更新的版本。`,
+    claudeOk: (version: string, login: string) => `Claude Code ${version}；${login}`,
+    claudeKey: "密钥只通过环境变量交给 Claude Code。",
+    claudeOwnLogin: "使用 Claude Code 自己的登录；用订阅登录时，请自行确认这样调用符合订阅条款。",
+    desktop: (count: number) =>
+      `${count} 个任务会等待 Claude Desktop 领取：先在“设置 → 执行”里把 KM0 的 MCP 服务器加到 Claude Desktop，然后在 Claude Desktop 里说“做 KM0 的任务”。`,
   },
   en: {
     web: "The browser debug build cannot start local programs. Run from the desktop app, or export the package and run KM0 Runner yourself.",
-    noRepo: "This project has no linked local repository: the Runner makes a branch per task in a git repository.",
+    noRepo: "This project has no linked local repository: a run makes a branch per task in a git repository.",
     notGit: (path: string) => `${path} is not a git repository.`,
     repo: (path: string) => path,
     runnerMissing: "KM0 Runner was not found: install it on PATH, or set how to start it under Settings → Execution.",
@@ -225,10 +254,24 @@ const TEXT = {
     judgeFailed: (message: string) => `The results are imported, but acceptance did not finish: ${message}`,
     exited: (code: number | null) => `The process exited with code ${code ?? "none"}.`,
     interrupted: "This run had not finished when KM0 closed.",
+    directAgents: (count: number) =>
+      `${count} ${count === 1 ? "task goes" : "tasks go"} straight to its agent: Claude Code runs by itself, Claude Desktop is waited for.`,
+    unsupported: (tasks: string) =>
+      `These tasks went to agents the direct executor cannot run: ${tasks}. Route them to Claude Code or Claude Desktop, or run with KM0 Runner.`,
+    claudeMissing:
+      "Claude Code was not found: npm install -g @anthropic-ai/claude-code, or set how to start it under Settings → Execution.",
+    claudeOld: (version: string) => `Claude Code ${version} is too old; ${CLAUDE_CODE_MIN_VERSION} or newer is needed.`,
+    claudeOk: (version: string, login: string) => `Claude Code ${version}; ${login}`,
+    claudeKey: "keys reach Claude Code only as environment variables.",
+    claudeOwnLogin:
+      "it uses Claude Code's own sign-in; with a subscription sign-in, check that being run this way fits its terms.",
+    desktop: (count: number) =>
+      `${count} ${count === 1 ? "task waits" : "tasks wait"} for Claude Desktop to take ${count === 1 ? "it" : "them"}: add KM0's MCP server to Claude Desktop under Settings → Execution, then ask Claude Desktop to "do the KM0 tasks".`,
   },
 } as const;
 
 const usd = (value: number) => `$${value.toFixed(value < 1 ? 3 : 2)}`;
+const pad = (seq: number) => String(seq).padStart(2, "0");
 
 /**
  * The Runner config KM0 writes from the plan, models from Settings → Models: one rung per tier label for the
@@ -342,10 +385,28 @@ export function generateConfig(
   };
 }
 
+/** What the direct executor needs from the desktop app. */
+export interface DirectSetup {
+  /** KM0's `dispatch/` folder: the inbox where tasks for Claude Desktop wait. */
+  inboxDir: string;
+  /** How Claude Desktop starts KM0's MCP server. */
+  mcp: McpSetup | null;
+  version: string;
+  /** Starts the run: a DirectRun in KM0's main process. */
+  startRun: (options: DirectRunOptions) => RunningProcess;
+  /** A run that ended without KM0 seeing it end (KM0 closed): take its tasks out of the inbox. */
+  forget: (runId: string) => Promise<void>;
+}
+
+/** `2.1.3 (Claude Code)` → `2.1.3`. */
+const claudeVersionIn = (output: string) => (/claude/i.test(output) ? versionIn(output) : null);
+
 /**
  * Runs hand-off packages from KM0. With KM0 Runner (the default) KM0 writes the package and a Runner config
  * generated from the plan, starts `km0-runner run`, follows its progress.jsonl, stops it on request, and
- * when it ends imports the reports and judges them. A custom command is only started, shown and stopped.
+ * when it ends imports the reports and judges them. The direct executor hands each task to its routed agent
+ * (Claude Code, Claude Desktop) and writes the same files, so it is followed, stopped and judged the same way.
+ * A custom command is only started, shown and stopped.
  */
 export class ExecutionService {
   private readonly active = new Map<number, Active>();
@@ -361,6 +422,7 @@ export class ExecutionService {
     private readonly language: () => Language,
     private readonly defaultRunsDir: string,
     private readonly emit: (run: ExecutionRun) => void = () => undefined,
+    private readonly direct: DirectSetup | null = null,
   ) {
     // Runs that were going when KM0 last closed: finished if their progress file says so, else interrupted.
     const stale = this.db
@@ -398,10 +460,50 @@ export class ExecutionService {
   async status(): Promise<ExecutorStatus> {
     const none: ToolCheck = { found: false, command: null, version: null, ok: false, problem: null };
     if (!this.port) {
-      return { available: false, reason: TEXT[this.language()].web, runner: none, pi: none, runsDir: this.runsDir() };
+      return {
+        available: false,
+        reason: TEXT[this.language()].web,
+        runner: none,
+        pi: none,
+        claude: none,
+        mcp: null,
+        runsDir: this.runsDir(),
+      };
     }
-    const [runner, pi] = await Promise.all([this.findRunner(), this.findPi()]);
-    return { available: true, reason: null, runner: runner.check, pi, runsDir: this.runsDir() };
+    const [runner, pi, claude] = await Promise.all([this.findRunner(), this.findPi(), this.findClaude()]);
+    return {
+      available: true,
+      reason: null,
+      runner: runner.check,
+      pi,
+      claude: claude.check,
+      mcp: this.direct?.mcp ?? null,
+      runsDir: this.runsDir(),
+    };
+  }
+
+  private async findClaude(): Promise<{ check: ToolCheck; command: string[] | null }> {
+    const port = this.port as ExecPort;
+    const text = TEXT[this.language()];
+    const configured = this.getSettings().claudeCommand;
+    const command = configured
+      ? splitCommand(configured)
+      : await port.which("claude").then((found) => (found ? [found] : null));
+    if (command) {
+      const result = await port.capture([...command, "--version"]);
+      const version = result.code === 0 ? claudeVersionIn(result.output) : null;
+      if (version) {
+        const ok = atLeast(version, CLAUDE_CODE_MIN_VERSION);
+        return {
+          check: { found: true, command: command.join(" "), version, ok, problem: ok ? null : text.claudeOld(version) },
+          command,
+        };
+      }
+    }
+    return {
+      check: { found: false, command: configured, version: null, ok: false, problem: text.claudeMissing },
+      command: null,
+    };
   }
 
   private async findRunner(): Promise<{ check: ToolCheck; command: string[] | null }> {
@@ -480,7 +582,9 @@ export class ExecutionService {
       item({ id: "models", ok: false, blocking: true, detail: text.unknownSeq(unknown.join(", ")), fix: "routing" });
     }
 
-    if (settings.kind === "custom") {
+    if (settings.kind === "direct") {
+      await this.precheckDirect(plan, seqs, item);
+    } else if (settings.kind === "custom") {
       const template = settings.customTemplate;
       item({
         id: "custom",
@@ -549,6 +653,55 @@ export class ExecutionService {
     return { ok: items.every((entry) => entry.ok || !entry.blocking), items };
   }
 
+  /** Every task's agent can take a task directly; Claude Code is there when a task goes to it. */
+  private async precheckDirect(plan: RoutingPlan, seqs: number[], item: (entry: PrecheckItem) => void): Promise<void> {
+    const text = TEXT[this.language()];
+    const tasks = seqs.length > 0 ? plan.tasks.filter((task) => seqs.includes(task.seq)) : plan.tasks;
+    const names = new Map(this.routing.agentConfigs().map((agent) => [agent.id, agent.name]));
+    const unsupported = tasks.filter((task) => !(DIRECT_AGENTS as readonly string[]).includes(task.agent));
+    item({
+      id: "agents",
+      ok: unsupported.length === 0,
+      blocking: unsupported.length > 0,
+      detail:
+        unsupported.length > 0
+          ? text.unsupported(
+              unsupported.map((task) => `${pad(task.seq)} ${names.get(task.agent) ?? task.agent}`).join("、"),
+            )
+          : text.directAgents(tasks.length),
+      fix: unsupported.length > 0 ? "routing" : null,
+    });
+    const coded = tasks.filter((task) => task.agent === "claude_code");
+    if (coded.length > 0) {
+      const claude = await this.findClaude();
+      const keyed = coded.some((task) => Object.keys(this.agentEnv(task)).length > 0);
+      item({
+        id: "claude",
+        ok: claude.check.ok,
+        blocking: true,
+        detail: claude.check.ok
+          ? text.claudeOk(claude.check.version ?? "", keyed ? text.claudeKey : text.claudeOwnLogin)
+          : (claude.check.problem ?? text.claudeMissing),
+        fix: claude.check.ok ? null : "settings.execution",
+      });
+    }
+    const desktop = tasks.filter((task) => task.agent === "claude_desktop").length;
+    if (desktop > 0) item({ id: "desktop", ok: true, blocking: false, detail: text.desktop(desktop), fix: null });
+  }
+
+  /** What a task's agent gets in its environment: the provider's key and address for Claude Code. */
+  private agentEnv(task: RoutingPlan["tasks"][number]): Record<string, string> {
+    if (task.agent !== "claude_code" || task.modelRef === null) return {};
+    const model = this.settings.listModels().find((entry) => entry.id === task.modelRef);
+    if (!model) return {};
+    const env: Record<string, string> = {};
+    const key = this.settings.providerKey(model.providerId);
+    const baseUrl = this.settings.listProviders().find((provider) => provider.id === model.providerId)?.baseUrl;
+    if (key) env.ANTHROPIC_API_KEY = key;
+    if (baseUrl) env.ANTHROPIC_BASE_URL = baseUrl;
+    return env;
+  }
+
   private generate(plan: RoutingPlan, piCommand: string, modelsJson = "models.json"): GeneratedConfig {
     const providers = new Map(this.settings.listProviders().map((provider) => [provider.id, provider]));
     return generateConfig(
@@ -578,7 +731,8 @@ export class ExecutionService {
       const runDir = port.join(runsDir, runId);
       // The package and config sit beside the run directory, not in it, so the run folder stays the Runner's.
       const packageDir = port.join(runsDir, `${runId}.km0`);
-      const pkg = this.handoff.build(projectId, "runner");
+      // The direct executor hands each agent its own task file; KM0 Runner reads the Runner flavour.
+      const pkg = this.handoff.build(projectId, settings.kind === "direct" ? "agents" : "runner");
       for (const file of pkg.files) await port.writeFile(port.join(packageDir, ...file.path.split("/")), file.content);
 
       let process: RunningProcess;
@@ -587,7 +741,18 @@ export class ExecutionService {
         log.push(line);
         if (log.length > LOG_LINES) log.splice(0, log.length - LOG_LINES);
       };
-      if (settings.kind === "custom") {
+      if (settings.kind === "direct") {
+        process = await this.startDirect(
+          projectId,
+          runId,
+          runDir,
+          port.join(packageDir, "km0"),
+          pkg,
+          seqs,
+          reuse,
+          onLine,
+        );
+      } else if (settings.kind === "custom") {
         const commandLine = (settings.customTemplate ?? "")
           .replaceAll("{package}", port.quote(packageDir))
           .replaceAll("{repo}", port.quote(repo))
@@ -633,6 +798,67 @@ export class ExecutionService {
       void process.exited.then((exit) => this.finish(id, exit.code));
       return this.view(this.row(id));
     });
+  }
+
+  private async startDirect(
+    projectId: number,
+    runId: string,
+    runDir: string,
+    packageDir: string,
+    pkg: HandoffPackage,
+    seqs: number[],
+    reuse: string | null,
+    onLine: (line: string) => void,
+  ): Promise<RunningProcess> {
+    const direct = this.direct;
+    if (!direct) throw new AppError("conflict", "The direct executor is not available here.");
+    const plan = this.routing.get(projectId) as RoutingPlan;
+    const models = new Map(this.settings.listModels().map((model) => [model.id, model]));
+    const listed = JSON.parse(pkg.files.find((file) => file.path === "km0/tasks.json")?.content ?? "[]") as {
+      seq: number;
+      testCommand: string | null;
+    }[];
+    const coded = plan.tasks.some(
+      (task) => task.agent === "claude_code" && (seqs.length === 0 || seqs.includes(task.seq)),
+    );
+    const claude = coded ? (await this.findClaude()).command : null;
+    const tasks: DirectTask[] = plan.tasks.map((task) => {
+      const model = task.modelRef !== null ? models.get(task.modelRef) : undefined;
+      return {
+        seq: task.seq,
+        title: task.title,
+        dependsOn: task.dependsOn,
+        agent: task.agent,
+        model: task.model,
+        modelRef: model ? `km0-${model.providerId}/${model.modelId}` : null,
+        tier: task.tier,
+        prompt: pkg.tasks.find((item) => item.seq === task.seq)?.prompt ?? "",
+        testCommand: listed.find((item) => item.seq === task.seq)?.testCommand ?? null,
+        acceptance: task.acceptance,
+        env: this.agentEnv(task),
+        features: task.features,
+        score: task.score,
+      };
+    });
+    const project = this.db.prepare("SELECT title FROM projects WHERE id = ?").get(projectId) as { title: string };
+    const options: DirectRunOptions = {
+      runId,
+      runDir,
+      repo: this.repoOf(projectId) as string,
+      projectId,
+      projectTitle: project.title,
+      packageDir,
+      tasks,
+      seqs,
+      reuse,
+      inboxDir: direct.inboxDir,
+      claudeCommand: claude,
+      budget: plan.budget,
+      language: this.language(),
+      version: direct.version,
+      onLine,
+    };
+    return direct.startRun(options);
   }
 
   /** Ask a run to stop: its stop file (any platform) and SIGTERM where there is one. */
@@ -699,8 +925,9 @@ export class ExecutionService {
     const row = this.row(id);
     const text = TEXT[this.language()];
     const cancelled = code === EXIT_CANCELLED || active.progress.finished === "cancelled" || active.stopping;
-    // The Runner exits 1 when some task failed, which is still a finished run; a custom command must exit 0.
-    const ok = row.executor === "runner" ? code === 0 || code === 1 : code === 0;
+    // The Runner and the direct executor exit 1 when some task failed, which is still a finished run; a custom
+    // command must exit 0.
+    const ok = row.executor === "custom" ? code === 0 : code === 0 || code === 1;
     const status: ExecutionStatus = cancelled ? "cancelled" : ok ? "finished" : "failed";
     const error = status === "failed" ? [text.exited(code), ...active.log.slice(-5)].join("\n") : null;
     this.db
@@ -741,6 +968,7 @@ export class ExecutionService {
 
   /** A run left going when KM0 closed. */
   private async settle(row: RunRow): Promise<void> {
+    if (row.executor === "direct") await this.direct?.forget(row.run_id).catch(() => undefined);
     const progress = await this.readProgress(row);
     const status: ExecutionStatus =
       progress.finished === "cancelled" ? "cancelled" : progress.finished ? "finished" : "interrupted";

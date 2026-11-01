@@ -1,5 +1,5 @@
-import type { ExecutorSettings, ToolCheck } from "@km0/shared";
-import { AlertTriangle, Check, FolderOpen, RefreshCw, X } from "lucide-react";
+import type { ExecutorSettings, McpSetup, ToolCheck } from "@km0/shared";
+import { AlertTriangle, Check, Copy, FolderOpen, RefreshCw, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
@@ -48,7 +48,50 @@ function ToolLine({ label, check }: { label: string; check: ToolCheck | undefine
   );
 }
 
-/** How hand-off packages are run from KM0: KM0 Runner by default, or a command of the user's own. */
+/** The entry to add under `mcpServers` in Claude Desktop's claude_desktop_config.json. */
+export const desktopConfig = (mcp: McpSetup) =>
+  JSON.stringify({ mcpServers: { km0: { command: mcp.command, args: mcp.args, env: mcp.env } } }, null, 2);
+
+/** The same server added to Claude Code, for a chat in Claude Code rather than Claude Desktop. */
+export function claudeMcpAdd(mcp: McpSetup): string {
+  const quote = (value: string) => (/^[\w@%+=:,./-]+$/.test(value) ? value : `"${value.replaceAll('"', '\\"')}"`);
+  const env = Object.entries(mcp.env).map(([key, value]) => `--env ${key}=${value}`);
+  return ["claude mcp add km0", ...env, "--", quote(mcp.command), ...mcp.args.map(quote)].join(" ");
+}
+
+function CopyBlock({ label, text }: { label: string; text: string }) {
+  const { t } = useTranslation();
+  const [done, setDone] = useState(false);
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-muted">{label}</span>
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-label={`${t("settings.execution.copy")} ${label}`}
+          onClick={() =>
+            void navigator.clipboard.writeText(text).then(() => {
+              setDone(true);
+              setTimeout(() => setDone(false), 1500);
+            })
+          }
+        >
+          {done ? <Check /> : <Copy />}
+          {done ? t("settings.execution.copied") : t("settings.execution.copy")}
+        </Button>
+      </div>
+      <pre className="max-h-80 overflow-auto rounded bg-sunken p-2 font-mono text-xs whitespace-pre-wrap break-all">
+        {text}
+      </pre>
+    </div>
+  );
+}
+
+/**
+ * How hand-off packages are run from KM0: KM0 Runner by default; straight to each task's agent (Claude Code,
+ * Claude Desktop through KM0's MCP server); or a command of the user's own.
+ */
 export function ExecutionTab() {
   const { t } = useTranslation();
   const files = useFiles();
@@ -97,9 +140,9 @@ export function ExecutionTab() {
         </p>
       ) : null}
 
-      <fieldset className="grid gap-2 sm:grid-cols-2">
+      <fieldset className="grid gap-2 sm:grid-cols-3">
         <legend className="mb-2 text-sm font-semibold">{t("settings.execution.kind")}</legend>
-        {(["runner", "custom"] as const).map((kind) => (
+        {(["runner", "direct", "custom"] as const).map((kind) => (
           <label
             key={kind}
             className={cn(
@@ -186,6 +229,61 @@ export function ExecutionTab() {
             )}
           </fieldset>
         </section>
+      ) : draft.kind === "direct" ? (
+        <>
+          <section
+            aria-label={t("settings.execution.kinds.direct")}
+            className="flex flex-col gap-4 rounded-lg border border-border bg-panel p-4"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 flex-col gap-2">
+                <ToolLine label="Claude Code" check={status.data.claude} />
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => void status.refetch()} disabled={status.isFetching}>
+                <RefreshCw className={cn(status.isFetching && "animate-spin")} />
+                {t("settings.execution.recheck")}
+              </Button>
+            </div>
+            <p className="text-xs text-muted">{t("settings.execution.claudeLogin")}</p>
+            <Field
+              label={t("settings.execution.claudeCommand")}
+              htmlFor="claudeCommand"
+              hint={t("settings.execution.claudeCommandHint")}
+            >
+              <Input
+                id="claudeCommand"
+                placeholder={t("settings.execution.automatic")}
+                value={draft.claudeCommand ?? ""}
+                onChange={(event) => set({ claudeCommand: text(event.target.value) })}
+              />
+            </Field>
+            <PathField
+              id="runsDir"
+              label={t("settings.execution.runsDir")}
+              value={draft.runsDir}
+              placeholder={status.data.runsDir}
+              onChange={(value) => set({ runsDir: value })}
+              onBrowse={status.data.available ? () => void browse("runsDir") : null}
+            />
+          </section>
+          <section
+            aria-label="Claude Desktop"
+            className="flex flex-col gap-3 rounded-lg border border-border bg-panel p-4"
+          >
+            <h3 className="text-sm font-semibold">Claude Desktop</h3>
+            <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm">
+              {(t("settings.execution.desktopSteps", { returnObjects: true }) as string[]).map((step) => (
+                <li key={step}>{step}</li>
+              ))}
+            </ol>
+            {status.data.mcp ? (
+              <>
+                <CopyBlock label={t("settings.execution.desktopConfig")} text={desktopConfig(status.data.mcp)} />
+                <CopyBlock label={t("settings.execution.claudeCodeMcp")} text={claudeMcpAdd(status.data.mcp)} />
+              </>
+            ) : null}
+          </section>
+        </>
       ) : (
         <section
           aria-label={t("settings.execution.kinds.custom")}

@@ -21,6 +21,8 @@
     "ui:rules": "node scripts/check-ui-rules.mjs --self-test && node scripts/check-ui-rules.mjs",
     "format": "biome format --write .",
     "e2e": "playwright test",
+    "e2e:update:build": "node e2e-packaged/build.mjs",
+    "e2e:update": "playwright test -c e2e-packaged/playwright.config.ts",
     "registry:fetch": "pnpm --filter @km0/registry fetch",
     "registry:build": "pnpm --filter @km0/registry build",
     "eval:replay": "pnpm --filter @km0/eval replay",

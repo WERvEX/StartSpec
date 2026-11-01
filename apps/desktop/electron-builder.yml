@@ -10,6 +10,10 @@ files:
   - out/**/*
   - package.json
 asar: true
+# KM0's MCP server for Claude Desktop, outside the asar so KM0's own executable can run it as Node.
+extraResources:
+  - from: out/mcp/km0-mcp.cjs
+    to: km0-mcp.cjs
 npmRebuild: false
 win:
   target:

@@ -7,6 +7,8 @@ import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotoc
 import { app, BrowserWindow, ipcMain, session, shell } from "electron";
 import log from "electron-log/main";
 import { openDatabase } from "./db/database";
+import { DirectRun } from "./dispatch/direct-run";
+import { removeRun } from "./dispatch/inbox";
 import { ElectronSecretStore } from "./electron-secrets";
 import { electronUpdater } from "./electron-updater";
 import { createHandlers } from "./handlers";
@@ -44,6 +46,17 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 let mainWindow: BrowserWindow | null = null;
+
+/**
+ * How Claude Desktop starts KM0's MCP server: KM0's own executable run as Node with the bundled script, which
+ * ships outside the asar (extraResources); in development, the script electron-vite's build wrote.
+ */
+function mcpSetup(inboxDir: string) {
+  const script = app.isPackaged
+    ? join(process.resourcesPath, "km0-mcp.cjs")
+    : join(app.getAppPath(), "out", "mcp", "km0-mcp.cjs");
+  return { command: process.execPath, args: [script, "--dir", inboxDir], env: { ELECTRON_RUN_AS_NODE: "1" } };
+}
 
 /** A text file over HTTPS, for the model registry update; gives up after 30 seconds. */
 async function downloadText(url: string): Promise<string> {
@@ -210,6 +223,13 @@ void app.whenReady().then(() => {
     language,
     join(dataDir, "runs"),
     (run) => emit("execution.update", run),
+    {
+      inboxDir: join(dataDir, "dispatch"),
+      mcp: mcpSetup(join(dataDir, "dispatch")),
+      version: app.getVersion(),
+      startRun: (options) => new DirectRun(options),
+      forget: (runId) => removeRun(join(dataDir, "dispatch"), runId),
+    },
   );
   const updaterPort = electronUpdater();
   const updates = new UpdateService(

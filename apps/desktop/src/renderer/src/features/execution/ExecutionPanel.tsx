@@ -1,4 +1,12 @@
-import type { ExecTask, ExecTaskStatus, ExecutionRun, Precheck, PrecheckItem } from "@km0/shared";
+import {
+  AGENT_NAMES,
+  type ExecTask,
+  type ExecTaskStatus,
+  type ExecutionRun,
+  isPresetAgent,
+  type Precheck,
+  type PrecheckItem,
+} from "@km0/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { AlertTriangle, ArrowUp, Check, FolderGit2, Info, Loader2, Play, RotateCcw, Square, X } from "lucide-react";
@@ -20,6 +28,7 @@ const usd = (value: number) => (value === 0 ? "$0" : value < 0.01 ? "<$0.01" : `
 
 const TASK_TONE: Record<ExecTaskStatus, "neutral" | "accent" | "success" | "warning" | "danger"> = {
   waiting: "neutral",
+  awaiting: "warning",
   running: "accent",
   passed: "success",
   unjudged: "neutral",
@@ -68,6 +77,7 @@ export function ExecutionPanel({ projectId }: { projectId: number }) {
   const list = runs.data ?? [];
   const running = list.some((run) => run.status === "running" || run.status === "stopping");
   const custom = settings.data?.kind === "custom";
+  const direct = settings.data?.kind === "direct";
   const rejectedSeqs = (run: ExecutionRun) => {
     const imported = verdicts.data?.find((item) => item.id === run.importedRunRef);
     const rejected = imported?.results.filter((result) => result.accepted === false).map((result) => result.seq) ?? [];
@@ -88,7 +98,9 @@ export function ExecutionPanel({ projectId }: { projectId: number }) {
             {custom ? <Badge tone="warning">{t("execution.custom")}</Badge> : null}
           </h2>
           <p className="mt-1 text-sm text-muted">
-            {available ? t(custom ? "execution.introCustom" : "execution.intro") : status.data?.reason}
+            {available
+              ? t(custom ? "execution.introCustom" : direct ? "execution.introDirect" : "execution.intro")
+              : status.data?.reason}
           </p>
         </div>
         <Button variant="primary" disabled={!available || running || start.isPending} onClick={() => setChecking(true)}>
@@ -216,7 +228,7 @@ function RunCard({
           <span />
         )}
         {run.importedRunRef !== null ? <span className="text-xs text-muted">{t("execution.imported")}</span> : null}
-        {!live && redo.length > 0 && run.executor === "runner" ? (
+        {!live && redo.length > 0 && run.executor !== "custom" ? (
           <Button size="sm" disabled={busy} onClick={() => onRedo(redo)}>
             <RotateCcw />
             {t("execution.redo", { seqs: redo.join(", ") })}
@@ -227,16 +239,18 @@ function RunCard({
   );
 }
 
+/** A preset's name, or a custom agent's id. */
+const agentName = (id: string) => (isPresetAgent(id) ? AGENT_NAMES[id] : id);
+
 function TaskRow({ task }: { task: ExecTask }) {
   const { t } = useTranslation();
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1.5 text-sm">
       <span className="w-6 text-muted">{task.seq}</span>
       <span className="min-w-0 flex-1 truncate">{task.title}</span>
-      {task.tier ? (
+      {task.agent || task.tier ? (
         <span className="text-xs text-muted">
-          {task.tier}
-          {task.model ? ` · ${task.model}` : ""}
+          {[task.agent ? agentName(task.agent) : null, task.tier, task.model].filter(Boolean).join(" · ")}
         </span>
       ) : null}
       {task.escalations.length > 0 ? (
@@ -253,6 +267,9 @@ function TaskRow({ task }: { task: ExecTask }) {
         {task.status === "running" ? <Loader2 className="size-3 animate-spin" /> : null}
         {t(`execution.taskStatus.${task.status}`)}
       </Badge>
+      {task.status === "awaiting" ? (
+        <p className="w-full pl-9 text-xs text-muted">{t("execution.awaitingHint")}</p>
+      ) : null}
     </li>
   );
 }

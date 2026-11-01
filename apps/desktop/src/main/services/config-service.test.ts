@@ -80,7 +80,7 @@ describe("ConfigService", () => {
       modelsUpdated: 3,
       searchCreated: 1,
       searchUpdated: 0,
-      agentsUpdated: 7,
+      agentsUpdated: 8,
       agentsCreated: 1,
       localServersDisabled: 0,
       rolesSet: true,

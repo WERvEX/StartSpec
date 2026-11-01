@@ -71,6 +71,43 @@ jobs:
           force_orphan: true
           commit_message: "Deploy web debug build from ${{ github.sha }}"
 
+  update-test:
+    # The in-app update for real: package an old and a new version, install the old one, serve the new one from
+    # a local feed and update through Settings → About. An unsigned macOS app cannot update itself, so no macOS.
+    name: In-app update (${{ matrix.os }})
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Package an old and a new version
+        run: pnpm e2e:update:build
+      - name: Update the old version to the new one (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          pnpm exec playwright install-deps chromium
+          xvfb-run -a pnpm e2e:update
+      - name: Update the old version to the new one (Windows)
+        if: runner.os == 'Windows'
+        run: pnpm e2e:update
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: update-test-${{ runner.os }}
+          path: test-results/
+          if-no-files-found: ignore
+
   package:
     name: Package (${{ matrix.os }})
     needs: check

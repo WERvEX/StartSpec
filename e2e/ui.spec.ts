@@ -106,6 +106,15 @@ const screens: Screen[] = [
     }),
   ),
   {
+    // The executor that hands tasks straight to agents, with Claude Desktop's MCP entry; not saved.
+    name: "settings-execution-direct",
+    open: async () => {
+      await page.getByRole("tab").nth(2).click();
+      await page.getByRole("radio", { name: /直接交给 Agent|Straight to agents/ }).check();
+      await settle();
+    },
+  },
+  {
     name: "folder-browser",
     open: async () => {
       await goTo("#/");

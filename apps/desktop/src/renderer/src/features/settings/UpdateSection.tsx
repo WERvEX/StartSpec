@@ -67,6 +67,9 @@ export function UpdateSection() {
               t("settings.about.update.idle", { version: data.currentVersion })
             )}
           </p>
+          {data.feed ? (
+            <p className="text-xs text-muted">{t("settings.about.update.feed", { url: data.feed })}</p>
+          ) : null}
           {data.status === "downloading" ? (
             <Progress value={data.percent ?? 0} max={100} label={t("settings.about.update.progress")} />
           ) : null}
