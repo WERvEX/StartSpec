@@ -96,6 +96,18 @@ function stopOurProcesses(): void {
   }
 }
 
+async function stopRestartedApp(): Promise<void> {
+  const deadline = Date.now() + 2 * 60_000;
+  let quietSince = Date.now();
+  while (Date.now() < deadline) {
+    if (ourProcesses().length > 0) {
+      stopOurProcesses();
+      quietSince = Date.now();
+    } else if (Date.now() - quietSince > 15_000) return;
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+}
+
 async function launch(executablePath: string): Promise<{ app: ElectronApplication; page: Page }> {
   const app = await electron.launch({
     executablePath,
@@ -166,11 +178,11 @@ test(`${OLD} finds ${NEW} on its feed, installs it and starts again with the use
   await section.getByRole("button", { name: "重启并安装" }).click();
   await exited;
 
-  // The updater starts the new version by itself; that one is not under the test's control, so it is stopped
-  // once it shows up (or after a while, when it cannot start here, as on Linux without a sandbox).
-  await expect.poll(() => (windows ? ourProcesses().length > 0 : true), { timeout: 3 * 60_000 }).toBe(true);
-  await new Promise((resolve) => setTimeout(resolve, 5_000));
-  stopOurProcesses();
+  // The updater starts the new version by itself; that instance is not under the test's control and would hold
+  // KM0's single-instance lock, so it is stopped. It can take a while to come up (an AppImage unpacks first),
+  // or never come up (no sandbox as root): keep stopping until none has been seen for 15 seconds.
+  if (windows) await expect.poll(() => ourProcesses().length > 0, { timeout: 3 * 60_000 }).toBe(true);
+  await stopRestartedApp();
 
   const next = await launch(installed());
   expect(await next.app.evaluate(({ app }) => app.getVersion())).toBe(NEW);
