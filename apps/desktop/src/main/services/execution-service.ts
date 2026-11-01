@@ -181,7 +181,7 @@ function newRunId(now = new Date()): string {
 const TEXT = {
   "zh-CN": {
     web: "网页调试版不能启动本地程序。请在桌面版里执行，或者导出交接包后自己运行 KM0 Runner。",
-    noRepo: "这个项目还没有关联本地仓库：Runner 要在一个 git 仓库里为每个任务建分支。",
+    noRepo: "这个项目还没有关联本地仓库：执行时要在一个 git 仓库里为每个任务建分支。",
     notGit: (path: string) => `${path} 不是 git 仓库。`,
     repo: (path: string) => path,
     runnerMissing: "没有找到 KM0 Runner：安装后放进 PATH，或者在“设置 → 执行”里填写启动方式。",
@@ -224,7 +224,7 @@ const TEXT = {
   },
   en: {
     web: "The browser debug build cannot start local programs. Run from the desktop app, or export the package and run KM0 Runner yourself.",
-    noRepo: "This project has no linked local repository: the Runner makes a branch per task in a git repository.",
+    noRepo: "This project has no linked local repository: a run makes a branch per task in a git repository.",
     notGit: (path: string) => `${path} is not a git repository.`,
     repo: (path: string) => path,
     runnerMissing: "KM0 Runner was not found: install it on PATH, or set how to start it under Settings → Execution.",
