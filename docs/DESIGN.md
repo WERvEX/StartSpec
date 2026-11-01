@@ -236,7 +236,7 @@ km0/agents/km0.mdc
 
 ### 更新、备份与评测（正式版 R6）
 
-- **应用内更新**：electron-updater 读 GitHub Releases（`electron-builder.yml` 的 `publish`）。启动 8 秒后按偏好检查一次；下载和重启都由用户在“设置 → 关于”里点，进度和说明都在页面里，有执行没结束时重启前同样先询问。开发版、网页调试版、非 AppImage 的 Linux 安装和未签名的 macOS 版本不更新，并说明原因。
+- **应用内更新**：electron-updater 读 GitHub Releases（`electron-builder.yml` 的 `publish`）。启动 8 秒后按偏好检查一次；下载和重启都由用户在“设置 → 关于”里点，进度和说明都在页面里，有执行没结束时重启前同样先询问。开发版、网页调试版、非 AppImage 的 Linux 安装和未签名的 macOS 版本不更新，并说明原因。环境变量 `KM0_UPDATE_FEED` 把更新源换成一个 generic feed，“关于”页会显示这个来源。`pnpm e2e:update` 用这个变量真实测试一次更新：先打包 9.9.1 和 9.9.2 两个版本（`pnpm e2e:update:build`），装上 9.9.1，用本地 HTTP 服务器提供 9.9.2，在“关于”里检查、下载、重启安装，再启动确认版本已变、数据还在。CI 的 `update-test` 在 Linux（AppImage）和 Windows（NSIS）上跑这个测试。
 - **签名**：CI 有证书密钥时签名 Windows 安装包、签名并公证 macOS 应用（hardened runtime，`build/entitlements.mac.plist`），没有时照常发布未签名版并在发布说明末尾写明。
 - **数据库备份**：有待执行的迁移时，先用 `VACUUM INTO` 把数据库复制成 `km0.db.before-<n>-<时间>.bak`，保留最近 3 份。
 - **离线评测**：`packages/eval` 检查拆解是否保留了需求里写明的每条验收条件，以及验收评审和隐藏测试是否一致。模型回答按 prompt 录制，回放不需要 API Key；prompt 改了就要重新录制，所以评测手动运行，不进 CI（CI 只跑它自己的单测）。

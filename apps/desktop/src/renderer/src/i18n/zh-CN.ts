@@ -397,6 +397,7 @@ export const zhCN = {
         install: "重启并安装",
         open: "查看",
         auto: "启动时自动检查更新",
+        feed: "更新来源：{{url}}（由 KM0_UPDATE_FEED 指定）",
       },
       version: "版本",
       dataDir: "数据目录",

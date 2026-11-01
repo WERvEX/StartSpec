@@ -411,6 +411,7 @@ export const en: Messages = {
         install: "Restart and install",
         open: "Show",
         auto: "Check for updates on start",
+        feed: "Update source: {{url}} (set by KM0_UPDATE_FEED)",
       },
       version: "Version",
       dataDir: "Data folder",

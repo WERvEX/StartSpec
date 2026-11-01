@@ -5,9 +5,10 @@ import updaterModule from "electron-updater";
 import type { UnsupportedReason, UpdaterPort } from "./services/update-service";
 
 /**
- * electron-updater against the GitHub Releases named in electron-builder.yml. It never downloads or
- * restarts by itself and never shows a dialog: KM0's About page drives it. Returns why it cannot run
- * when it cannot.
+ * electron-updater against the GitHub Releases named in electron-builder.yml, or the generic feed in
+ * KM0_UPDATE_FEED (the packaged update test serves one locally; Settings → About shows it). It never
+ * downloads or restarts by itself and never shows a dialog: KM0's About page drives it. Returns why it
+ * cannot run when it cannot.
  */
 export function electronUpdater(): UpdaterPort | UnsupportedReason {
   if (process.env.KM0_FAKE_UPDATE) return fakeUpdater(process.env.KM0_FAKE_UPDATE);
@@ -20,7 +21,10 @@ export function electronUpdater(): UpdaterPort | UnsupportedReason {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.logger = log;
+  const feed = process.env.KM0_UPDATE_FEED || null;
+  if (feed) autoUpdater.setFeedURL({ provider: "generic", url: feed });
   return {
+    feed,
     async check() {
       const result = await autoUpdater.checkForUpdates();
       if (!result?.isUpdateAvailable) return null;

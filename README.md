@@ -91,6 +91,7 @@ pnpm typecheck    # 类型检查
 pnpm lint         # Biome 检查
 pnpm build        # 构建到 apps/desktop/out
 pnpm e2e          # Playwright 端到端测试，包括桌面版和网页版（需先 pnpm build；Linux 无显示环境时用 xvfb-run -a pnpm e2e）
+pnpm e2e:update:build && pnpm e2e:update   # 用打包后的程序真实测试一次应用内更新（Linux、Windows）
 pnpm package      # 生成当前平台的安装包到 apps/desktop/release
 pnpm registry:fetch && pnpm registry:build   # 重新抓取榜单并生成模型注册表
 pnpm eval:record && pnpm eval:replay          # 离线评测：录制模型回答、回放评分（见 packages/eval/README.md）
@@ -116,6 +117,7 @@ packages/registry 模型注册表：从公开榜单拟合每个模型的能力�
 packages/eval     离线评测集：拆解是否保留验收条件、验收评审是否与隐藏测试一致（见 packages/eval/README.md）
 apps/desktop      Electron 应用：主进程、预加载脚本、React 界面，以及网页调试版入口
 e2e/              Playwright 端到端测试
+e2e-packaged/     打包后的程序的测试（应用内更新）
 docs/DESIGN.md    设计文档
 ```
 
