@@ -135,6 +135,11 @@ test.afterAll(async () => {
 test(`${OLD} finds ${NEW} on its feed, installs it and starts again with the user's data`, async () => {
   const { app, page } = await launch(install());
   expect(await app.evaluate(({ app }) => app.getVersion())).toBe(OLD);
+  // The UI follows the system's language (English on CI's Windows); KM0's own setting makes it Chinese for good.
+  await page.getByRole("link", { name: /^(设置|Settings)$/ }).click();
+  await page.getByRole("tab").nth(4).click();
+  await page.locator("#language").selectOption("zh-CN");
+  await expect(page.getByRole("tab", { name: "通用" })).toBeVisible();
 
   // Something of the user's, to find again after the update.
   await page.getByRole("link", { name: /新建任务/ }).click();
